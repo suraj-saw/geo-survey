@@ -134,7 +134,6 @@ class _GeocodeInput extends StatelessWidget {
     return Obx(() {
       final value = ctrl.answers[question.fieldName]?.toString() ?? '';
       final hasValue = value.isNotEmpty;
-      // Per-field loading flag added in the updated controller.
       final isLoading = ctrl.geocodeLoading[question.fieldName] == true;
 
       return Container(
@@ -148,7 +147,6 @@ class _GeocodeInput extends StatelessWidget {
         ),
         child: Row(
           children: [
-            // Icon or spinner
             isLoading
                 ? SizedBox(
               width: 20,
@@ -171,13 +169,10 @@ class _GeocodeInput extends StatelessWidget {
                     ? value
                     : 'Location not yet available',
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: (isLoading || hasValue)
-                      ? cs.onSurface
-                      : cs.outline,
+                  color: (isLoading || hasValue) ? cs.onSurface : cs.outline,
                 ),
               ),
             ),
-            // Refresh button — disabled while a fetch is already in progress
             IconButton(
               icon: const Icon(Icons.refresh),
               tooltip: 'Refresh location',
@@ -237,12 +232,16 @@ class _RadioInput extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
     return Obx(() {
       final selected = ctrl.answers[question.fieldName] as String?;
 
       return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: question.options.map((opt) {
           final isSelected = selected == opt.value;
+
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -256,18 +255,42 @@ class _RadioInput extends StatelessWidget {
                   if (val != null) ctrl.setAnswer(question.fieldName, val);
                 },
               ),
-              // "Other" free-text field
+              // Show the "Other" free-text area when:
+              //  • this option has allowText == true  AND
+              //  • this option is currently selected
               if (opt.allowText && isSelected)
                 Padding(
-                  padding: const EdgeInsets.only(left: 16, bottom: 8),
-                  child: TextField(
-                    controller: ctrl.textControllers[
-                    'other_text_${question.fieldName}'],
-                    decoration: const InputDecoration(
-                      hintText: 'Please specify...',
-                      border: OutlineInputBorder(),
-                      isDense: true,
-                    ),
+                  padding:
+                  const EdgeInsets.only(left: 16, right: 4, bottom: 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Please specify:',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: cs.onSurfaceVariant,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      TextField(
+                        controller: ctrl.textControllers[
+                        'other_text_${question.fieldName}'],
+                        maxLines: 3,
+                        textCapitalization: TextCapitalization.sentences,
+                        decoration: InputDecoration(
+                          hintText: 'Enter details here…',
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          filled: true,
+                          fillColor:
+                          cs.surfaceContainerHighest.withOpacity(0.5),
+                          contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 10),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
             ],

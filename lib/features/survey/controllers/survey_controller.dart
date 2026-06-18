@@ -1,3 +1,5 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:get/get.dart';
@@ -8,6 +10,8 @@ import '../repositories/survey_repository.dart';
 
 class SurveyController extends GetxController {
   final _repo = SurveyRepository();
+  final _firestore = FirebaseFirestore.instance;
+  final _auth = FirebaseAuth.instance;
 
   // ── Survey list state ──────────────────────────────────────────────────────
   final surveys = <Survey>[].obs;
@@ -32,10 +36,18 @@ class SurveyController extends GetxController {
   /// TextEditingControllers keyed by fieldName (text, number, other-text inputs)
   final Map<String, TextEditingController> textControllers = {};
 
+  /// Cached enumerator name so we don't hit Firestore on every form open.
+  String? _cachedEnumeratorName;
+
+  /// Optional callback invoked after a successful submission so the UI layer
+  /// can react (e.g. scroll to top).  Set by the form page and cleared on close.
+  VoidCallback? onSubmitSuccess;
+
   @override
   void onInit() {
     super.onInit();
     loadSurveys();
+    _prefetchEnumeratorName();
   }
 
   // ── Survey list ────────────────────────────────────────────────────────────
@@ -51,6 +63,35 @@ class SurveyController extends GetxController {
     }
   }
 
+  // ── Enumerator name ────────────────────────────────────────────────────────
+
+  /// Fetches the signed-in user's name from Firestore and caches it.
+  Future<void> _prefetchEnumeratorName() async {
+    try {
+      final uid = _auth.currentUser?.uid;
+      if (uid == null) return;
+      final doc = await _firestore.collection('users').doc(uid).get();
+      _cachedEnumeratorName = doc.data()?['name'] as String?;
+    } catch (_) {
+      // Best-effort; fall back to email display name if available.
+      _cachedEnumeratorName = _auth.currentUser?.displayName;
+    }
+  }
+
+  /// Returns true if a question should be auto-filled with the enumerator name.
+  bool _isEnumeratorNameField(SurveyQuestion q) {
+    if (q.type != 'text') return false;
+    final fn = q.fieldName.toLowerCase();
+    final lbl = q.label.toLowerCase();
+    // Match common field names/labels used for enumerator identity.
+    return fn.contains('enumerator') ||
+        fn.contains('surveyor') ||
+        fn == 'name_of_enumerator' ||
+        fn == 'enumerator_name' ||
+        lbl.contains('enumerator') ||
+        lbl.contains('surveyor');
+  }
+
   // ── Open a survey ──────────────────────────────────────────────────────────
 
   /// Opens a survey and navigates immediately. Location is fetched in the
@@ -63,6 +104,7 @@ class SurveyController extends GetxController {
     try {
       questions.value = await _repo.getQuestions(survey.id);
       _initControllers();
+      _autoFillKnownFields();
     } catch (e) {
       AppSnackbar.show('Error', 'Failed to load questions. Please try again.');
     } finally {
@@ -75,17 +117,17 @@ class SurveyController extends GetxController {
     _autoFetchGeocodeBackground();
   }
 
-  /// Resets survey state safely without flickering the survey list.
-  /// We defer clearing [activeSurvey] to the next frame so that any
-  /// Obx widgets watching it don't see a null/empty value mid-navigation.
+  /// Resets survey state safely.
+  ///
+  /// IMPORTANT: This method MUST only be called after the SurveyFormPage is
+  /// fully unmounted (i.e. from the page's dispose()). Calling it while the
+  /// form is still in the widget tree will dispose TextEditingControllers that
+  /// are still attached to TextField widgets, causing a framework assertion.
   void closeSurvey() {
-    // Clear the heavy data straight away.
     _clearForm();
-    questions.clear();
 
-    // Defer the activeSurvey reset so the list page has already been
-    // re-inserted into the widget tree before its Obx re-evaluates.
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      questions.clear();
       activeSurvey.value = null;
     });
   }
@@ -118,26 +160,61 @@ class SurveyController extends GetxController {
     }
   }
 
+  /// Auto-fills any fields whose names/labels indicate known values
+  /// (currently: enumerator name).
+  void _autoFillKnownFields() {
+    for (final q in questions) {
+      if (_isEnumeratorNameField(q)) {
+        final name = _cachedEnumeratorName ??
+            _auth.currentUser?.displayName ??
+            _auth.currentUser?.email ??
+            '';
+        if (name.isNotEmpty) {
+          answers[q.fieldName] = name;
+          // Also populate the TextEditingController so the UI reflects the value.
+          textControllers[q.fieldName]?.text = name;
+        }
+      }
+    }
+  }
+
+  // ── Reset form for a new entry (after successful submit) ───────────────────
+
+  /// Resets the form to a clean state so the enumerator can fill another
+  /// response for the same survey — without disposing controllers or closing
+  /// the survey.
+  void resetFormForNewEntry() {
+    // Clear all answers.
+    answers.clear();
+    geocodeLoading.clear();
+
+    // Reset all text controllers to empty (don't dispose — they're still
+    // attached to mounted TextField widgets).
+    for (final entry in textControllers.entries) {
+      entry.value.text = '';
+    }
+
+    // Re-auto-fill known fields (e.g. enumerator name).
+    _autoFillKnownFields();
+
+    // Re-fetch geocode in the background for the new entry.
+    _autoFetchGeocodeBackground();
+  }
+
   // ── Geocode ────────────────────────────────────────────────────────────────
 
   /// Silently fetches geocode for all geocode questions in the background.
-  /// Errors are swallowed; users can tap the refresh button to retry.
   void _autoFetchGeocodeBackground() {
     final geocodeQuestions =
     questions.where((q) => q.type == 'geocode').toList();
     if (geocodeQuestions.isEmpty) return;
 
     for (final q in geocodeQuestions) {
-      // Fire-and-forget; individual fields show their own loading state.
       fetchGeocodeFor(q.fieldName, silent: true);
     }
   }
 
   /// Fetches and stores the current GPS coordinates for [fieldName].
-  ///
-  /// [silent] — when true, permission/service errors are not shown as
-  /// snackbars (used during automatic background fetch). The user can
-  /// always tap the refresh icon to retry with feedback.
   Future<void> fetchGeocodeFor(String fieldName, {bool silent = false}) async {
     geocodeLoading[fieldName] = true;
 
@@ -242,6 +319,21 @@ class SurveyController extends GetxController {
         if (val == null || val.toString().isEmpty) {
           return '"${q.label}" — location not yet fetched. Tap the refresh icon next to the field.';
         }
+      } else if (q.type == 'radio') {
+        if (val == null || val.toString().trim().isEmpty) {
+          return '"${q.label}" is required.';
+        }
+        // If "Other" is selected and the field requires free text, validate it.
+        final selectedOpt = q.options
+            .where((o) => o.value == val && o.allowText)
+            .firstOrNull;
+        if (selectedOpt != null) {
+          final otherText =
+              answers['other_text_${q.fieldName}']?.toString().trim() ?? '';
+          if (otherText.isEmpty) {
+            return '"${q.label}" — please specify the "Other" option.';
+          }
+        }
       } else {
         if (val == null || val.toString().trim().isEmpty) {
           return '"${q.label}" is required.';
@@ -262,10 +354,26 @@ class SurveyController extends GetxController {
     try {
       _syncTextAnswers();
 
-      // Build final answers map with only fieldName keys (drop internal keys)
+      // Build final answers map.  For radio questions with an "other" option
+      // selected, we merge the free-text into the answer so the stored value
+      // clearly shows what was entered (e.g. "Other: the user typed text").
       final finalAnswers = <String, dynamic>{};
       for (final q in questions) {
-        finalAnswers[q.fieldName] = answers[q.fieldName];
+        final val = answers[q.fieldName];
+        if (q.type == 'radio') {
+          final selectedOpt =
+              q.options.where((o) => o.value == val && o.allowText).firstOrNull;
+          if (selectedOpt != null) {
+            final otherText =
+                answers['other_text_${q.fieldName}']?.toString().trim() ?? '';
+            finalAnswers[q.fieldName] =
+            otherText.isNotEmpty ? 'Other: $otherText' : val;
+          } else {
+            finalAnswers[q.fieldName] = val;
+          }
+        } else {
+          finalAnswers[q.fieldName] = val;
+        }
       }
 
       await _repo.submitResponse(
@@ -274,7 +382,13 @@ class SurveyController extends GetxController {
       );
 
       AppSnackbar.show('Submitted', 'Survey response saved successfully.');
-      closeSurvey();
+
+      // Reset the form for a new entry instead of closing the survey.
+      // The enumerator stays on the same form to fill another response.
+      resetFormForNewEntry();
+
+      // Notify the UI (e.g. to scroll to top).
+      onSubmitSuccess?.call();
     } catch (e) {
       AppSnackbar.show('Error', 'Failed to submit. Please try again.');
     } finally {
