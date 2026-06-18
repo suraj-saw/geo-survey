@@ -148,8 +148,14 @@ class AdminController extends GetxController {
 
       final csvData = const ListToCsvConverter().convert([header, ...rows]);
 
-      // Write to the app's documents directory.
-      final dir = await getApplicationDocumentsDirectory();
+      // Write to the app's CACHE directory rather than the documents
+      // directory. The open_file plugin's bundled FileProvider config is
+      // most reliably guaranteed to cover the cache dir across Android
+      // versions/OEMs — writing to ApplicationDocumentsDirectory was the
+      // root cause of the "Can't open this document / Spreadsheet appears
+      // to be corrupted" error: the receiving app was being handed a
+      // content URI it couldn't actually read bytes from.
+      final dir = await getTemporaryDirectory();
       final safeTitle = activeSurvey.value!.title
           .replaceAll(RegExp(r'[^\w\s-]'), '')
           .replaceAll(RegExp(r'\s+'), '_');
@@ -162,9 +168,18 @@ class AdminController extends GetxController {
         'CSV saved to:\n${file.path}',
       );
 
-      // Try to open the file with the system default app.
+      // Try to open the file with the system default app. Passing an
+      // explicit MIME type avoids Android routing the file to a
+      // spreadsheet app that expects a binary .xls/.xlsx structure (which
+      // then reports the plain-text CSV as "corrupted").
       try {
-        await OpenFile.open(file.path);
+        final result = await OpenFile.open(file.path, type: 'text/csv');
+        if (result.type != ResultType.done) {
+          debugPrint(
+            'OpenFile could not open the CSV: '
+                '${result.type} — ${result.message}',
+          );
+        }
       } catch (_) {
         // Silently ignore if no handler is available.
       }
