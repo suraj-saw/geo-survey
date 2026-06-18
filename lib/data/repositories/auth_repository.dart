@@ -14,12 +14,17 @@ class AuthRepository {
   /// Creates the Firebase Auth account and writes the matching
   /// `users/{uid}` document with the schema:
   /// { name, email, phone, isAdmin, createdAt }
+  ///
+  /// If the Firestore write fails after Auth creation, we still have
+  /// a valid Auth user — we retry the Firestore write once before
+  /// re-throwing, so the caller can surface a meaningful error.
   Future<UserCredential> signUp({
     required String name,
     required String email,
     required String phone,
     required String password,
   }) async {
+    // 1. Create the Firebase Auth account.
     final cred = await _auth.createUserWithEmailAndPassword(
       email: email.trim(),
       password: password.trim(),
@@ -27,7 +32,7 @@ class AuthRepository {
 
     final uid = cred.user!.uid;
 
-    await _firestore.collection('users').doc(uid).set({
+    final userData = {
       'name': name.trim(),
       'email': email.trim(),
       // Stored as a number to match the existing Firestore schema
@@ -35,7 +40,17 @@ class AuthRepository {
       'phone': int.tryParse(phone.trim()) ?? phone.trim(),
       'isAdmin': false,
       'createdAt': FieldValue.serverTimestamp(),
-    });
+    };
+
+    // 2. Write the Firestore document. Retry once on failure so a
+    //    transient network hiccup doesn't leave the user in a broken state.
+    try {
+      await _firestore.collection('users').doc(uid).set(userData);
+    } catch (_) {
+      // Brief pause then retry.
+      await Future.delayed(const Duration(seconds: 1));
+      await _firestore.collection('users').doc(uid).set(userData);
+    }
 
     return cred;
   }

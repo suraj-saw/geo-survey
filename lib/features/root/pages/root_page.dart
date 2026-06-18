@@ -25,18 +25,62 @@ class RootPage extends StatelessWidget {
         final user = authSnapshot.data;
         if (user == null) return const SignInPage();
 
-        return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-          future:
-          FirebaseFirestore.instance.collection('users').doc(user.uid).get(),
-          builder: (context, userSnapshot) {
-            if (userSnapshot.connectionState == ConnectionState.waiting) {
-              return const _LoadingScreen();
-            }
+        return _RoleRouter(uid: user.uid);
+      },
+    );
+  }
+}
 
-            final isAdmin = userSnapshot.data?.data()?['isAdmin'] == true;
-            return isAdmin ? const HomeAdminPage() : const HomeEnumeratorPage();
-          },
-        );
+/// Separated into its own StatefulWidget so the FutureBuilder is only
+/// rebuilt when the UID actually changes, not on every auth stream tick.
+class _RoleRouter extends StatefulWidget {
+  final String uid;
+  const _RoleRouter({required this.uid});
+
+  @override
+  State<_RoleRouter> createState() => _RoleRouterState();
+}
+
+class _RoleRouterState extends State<_RoleRouter> {
+  late Future<bool> _isAdminFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _isAdminFuture = _fetchIsAdmin(widget.uid);
+  }
+
+  @override
+  void didUpdateWidget(_RoleRouter old) {
+    super.didUpdateWidget(old);
+    if (old.uid != widget.uid) {
+      _isAdminFuture = _fetchIsAdmin(widget.uid);
+    }
+  }
+
+  Future<bool> _fetchIsAdmin(String uid) async {
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .get();
+      return doc.data()?['isAdmin'] == true;
+    } catch (_) {
+      // If the read fails for any reason, default to enumerator role.
+      return false;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<bool>(
+      future: _isAdminFuture,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) {
+          return const _LoadingScreen();
+        }
+        final isAdmin = snapshot.data ?? false;
+        return isAdmin ? const HomeAdminPage() : const HomeEnumeratorPage();
       },
     );
   }
@@ -47,6 +91,8 @@ class _LoadingScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    return const Scaffold(
+      body: Center(child: CircularProgressIndicator()),
+    );
   }
 }

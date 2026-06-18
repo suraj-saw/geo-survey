@@ -1,4 +1,5 @@
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
@@ -22,12 +23,24 @@ class SignInController {
         password: passwordController.text.trim(),
       );
 
-      final data = await _authRepo.getCurrentUserData();
-      final isAdmin = data?['isAdmin'] == true;
+      bool isAdmin = false;
+      try {
+        final data = await _authRepo.getCurrentUserData();
+        debugPrint('>>> [SignIn] Firestore data fetched: $data');
+        debugPrint('>>> [SignIn] isAdmin raw value: ${data?['isAdmin']}');
+        debugPrint('>>> [SignIn] isAdmin type: ${data?['isAdmin'].runtimeType}');
+        isAdmin = data?['isAdmin'] == true;
+        debugPrint('>>> [SignIn] isAdmin resolved: $isAdmin');
+      } catch (e) {
+        debugPrint('>>> [SignIn] ERROR fetching user data: $e');
+        isAdmin = false;
+      }
 
       if (isAdmin) {
+        debugPrint('>>> [SignIn] Routing to ADMIN');
         Get.offAllNamed(AppRoutes.homeAdmin);
       } else {
+        debugPrint('>>> [SignIn] Routing to ENUMERATOR');
         Get.offAllNamed(AppRoutes.homeEnumerator);
       }
     } on FirebaseAuthException catch (e) {
@@ -50,6 +63,10 @@ class SignInController {
         return 'Please enter a valid email address.';
       case 'user-disabled':
         return 'This account has been disabled.';
+      case 'network-request-failed':
+        return 'No internet connection. Please check your network.';
+      case 'too-many-requests':
+        return 'Too many attempts. Please wait a moment and try again.';
       default:
         return fallback ?? 'Sign in failed. Please try again.';
     }
