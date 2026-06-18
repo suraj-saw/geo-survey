@@ -1,18 +1,60 @@
-rules_version='2'
+rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    function isAdmin() {
+      return signedIn()
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true;
+    }
+
+    function surveyIsActive(surveyId) {
+      return get(/databases/$(database)/documents/surveys/$(surveyId)).data.active == true;
+    }
+
+    match /users/{userId} {
+      allow create: if isOwner(userId)
+        && request.resource.data.isAdmin == false
+        && request.resource.data.email is string
+        && request.resource.data.name is string;
+      allow read: if isOwner(userId) || isAdmin();
+      allow update: if (
+          isOwner(userId)
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['name', 'phone'])
+        ) || isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    match /surveys/{surveyId} {
+      allow get, list: if isAdmin() || (signedIn() && resource.data.active == true);
+      allow create, update, delete: if isAdmin();
+
+      match /questions/{questionId} {
+        allow get, list: if isAdmin() || (signedIn() && surveyIsActive(surveyId));
+        allow create, update, delete: if isAdmin();
+      }
+
+      match /responses/{responseId} {
+        allow create: if signedIn()
+          && surveyIsActive(surveyId)
+          && request.resource.data.submittedBy == request.auth.uid
+          && request.resource.data.answers is map
+          && request.resource.data.submittedAt == request.time;
+        allow get, list: if isAdmin();
+        allow update, delete: if isAdmin();
+      }
+    }
+
     match /{document=**} {
-      // This rule allows anyone with your database reference to view, edit,
-      // and delete all data in your database. It is useful for getting
-      // started, but it is configured to expire after 30 days because it
-      // leaves your app open to attackers. At that time, all client
-      // requests to your database will be denied.
-      //
-      // Make sure to write security rules for your app before that time, or
-      // else all client requests to your database will be denied until you
-      // update your rules.
-      allow read, write: if request.time < timestamp.date(2026, 7, 17);
+      allow read, write: if false;
     }
   }
 }

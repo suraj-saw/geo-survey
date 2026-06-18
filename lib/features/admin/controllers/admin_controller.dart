@@ -15,6 +15,7 @@ class AdminController extends GetxController {
   // ── Survey list state ─────────────────────────────────────────────────────
   final surveyStats = <SurveyStats>[].obs;
   final isLoading = true.obs;
+  final RxnString surveysError = RxnString();
 
   // ── Detail-page state ─────────────────────────────────────────────────────
   final Rx<Survey?> activeSurvey = Rx(null);
@@ -36,10 +37,12 @@ class AdminController extends GetxController {
 
   Future<void> loadSurveys() async {
     isLoading.value = true;
+    surveysError.value = null;
     try {
       surveyStats.value = await _repo.getAllSurveyStats();
     } catch (e) {
-      AppSnackbar.show('Error', 'Failed to load surveys.');
+      surveysError.value = 'Failed to load surveys. Please try again.';
+      AppSnackbar.show('Error', surveysError.value!);
     } finally {
       isLoading.value = false;
     }
@@ -119,12 +122,7 @@ class AdminController extends GetxController {
       // Build header row from question labels + meta columns.
       final fieldNames = questions.map((q) => q.fieldName).toList();
       final headerLabels = questions.map((q) => q.label).toList();
-      final header = [
-        'S.No',
-        'Submitted By',
-        'Submitted At',
-        ...headerLabels,
-      ];
+      final header = ['S.No', 'Submitted By', 'Submitted At', ...headerLabels];
 
       // Build data rows.
       final rows = <List<dynamic>>[];
@@ -148,14 +146,8 @@ class AdminController extends GetxController {
 
       final csvData = const ListToCsvConverter().convert([header, ...rows]);
 
-      // Write to the app's CACHE directory rather than the documents
-      // directory. The open_file plugin's bundled FileProvider config is
-      // most reliably guaranteed to cover the cache dir across Android
-      // versions/OEMs — writing to ApplicationDocumentsDirectory was the
-      // root cause of the "Can't open this document / Spreadsheet appears
-      // to be corrupted" error: the receiving app was being handed a
-      // content URI it couldn't actually read bytes from.
-      final dir = await getTemporaryDirectory();
+      // Keep exports outside cache so the OS is less likely to remove them.
+      final dir = await getApplicationDocumentsDirectory();
       final safeTitle = activeSurvey.value!.title
           .replaceAll(RegExp(r'[^\w\s-]'), '')
           .replaceAll(RegExp(r'\s+'), '_');
@@ -163,10 +155,7 @@ class AdminController extends GetxController {
       final file = File('${dir.path}/${safeTitle}_responses_$timestamp.csv');
       await file.writeAsString(csvData);
 
-      AppSnackbar.show(
-        'Exported',
-        'CSV saved to:\n${file.path}',
-      );
+      AppSnackbar.show('Exported', 'CSV saved to:\n${file.path}');
 
       // Try to open the file with the system default app. Passing an
       // explicit MIME type avoids Android routing the file to a
@@ -177,7 +166,7 @@ class AdminController extends GetxController {
         if (result.type != ResultType.done) {
           debugPrint(
             'OpenFile could not open the CSV: '
-                '${result.type} — ${result.message}',
+            '${result.type} — ${result.message}',
           );
         }
       } catch (_) {

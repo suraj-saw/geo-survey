@@ -10,11 +10,7 @@ class QuestionWidget extends StatelessWidget {
   final SurveyQuestion question;
   final SurveyController ctrl;
 
-  const QuestionWidget({
-    super.key,
-    required this.question,
-    required this.ctrl,
-  });
+  const QuestionWidget({super.key, required this.question, required this.ctrl});
 
   @override
   Widget build(BuildContext context) {
@@ -58,9 +54,9 @@ class _QuestionLabel extends StatelessWidget {
   Widget build(BuildContext context) {
     return RichText(
       text: TextSpan(
-        style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-          fontWeight: FontWeight.w600,
-        ),
+        style: Theme.of(
+          context,
+        ).textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w600),
         children: [
           TextSpan(text: question.label),
           if (question.required)
@@ -109,9 +105,7 @@ class _NumberInput extends StatelessWidget {
     return TextField(
       controller: ctrl.textControllers[question.fieldName],
       keyboardType: const TextInputType.numberWithOptions(decimal: true),
-      inputFormatters: [
-        FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
-      ],
+      inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.]'))],
       decoration: const InputDecoration(
         hintText: 'Enter number',
         border: OutlineInputBorder(),
@@ -139,27 +133,25 @@ class _GeocodeInput extends StatelessWidget {
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
         decoration: BoxDecoration(
-          border: Border.all(
-            color: hasValue ? cs.primary : cs.outline,
-          ),
+          border: Border.all(color: hasValue ? cs.primary : cs.outline),
           borderRadius: BorderRadius.circular(4),
-          color: hasValue ? cs.primaryContainer.withOpacity(0.2) : null,
+          color: hasValue ? cs.primaryContainer.withValues(alpha: 0.2) : null,
         ),
         child: Row(
           children: [
             isLoading
                 ? SizedBox(
-              width: 20,
-              height: 20,
-              child: CircularProgressIndicator(
-                strokeWidth: 2.5,
-                color: cs.primary,
-              ),
-            )
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.5,
+                      color: cs.primary,
+                    ),
+                  )
                 : Icon(
-              hasValue ? Icons.location_on : Icons.location_searching,
-              color: hasValue ? cs.primary : cs.outline,
-            ),
+                    hasValue ? Icons.location_on : Icons.location_searching,
+                    color: hasValue ? cs.primary : cs.outline,
+                  ),
             const SizedBox(width: 12),
             Expanded(
               child: Text(
@@ -167,7 +159,7 @@ class _GeocodeInput extends StatelessWidget {
                     ? 'Fetching location…'
                     : hasValue
                     ? value
-                    : 'Location not yet available',
+                    : 'Waiting for location',
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   color: (isLoading || hasValue) ? cs.onSurface : cs.outline,
                 ),
@@ -200,7 +192,8 @@ class _DropdownInput extends StatelessWidget {
       final selected = ctrl.answers[question.fieldName] as String?;
 
       return DropdownButtonFormField<String>(
-        value: selected,
+        key: ValueKey(selected),
+        initialValue: selected,
         isExpanded: true,
         decoration: const InputDecoration(
           border: OutlineInputBorder(),
@@ -209,11 +202,9 @@ class _DropdownInput extends StatelessWidget {
         hint: const Text('Select an option'),
         items: question.options
             .map(
-              (opt) => DropdownMenuItem(
-            value: opt.value,
-            child: Text(opt.label),
-          ),
-        )
+              (opt) =>
+                  DropdownMenuItem(value: opt.value, child: Text(opt.label)),
+            )
             .toList(),
         onChanged: (val) {
           if (val != null) ctrl.setAnswer(question.fieldName, val);
@@ -237,65 +228,74 @@ class _RadioInput extends StatelessWidget {
     return Obx(() {
       final selected = ctrl.answers[question.fieldName] as String?;
 
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: question.options.map((opt) {
-          final isSelected = selected == opt.value;
+      return RadioGroup<String>(
+        groupValue: selected,
+        onChanged: (val) {
+          if (val != null) ctrl.setAnswer(question.fieldName, val);
+        },
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: question.options.map((opt) {
+            final isSelected = selected == opt.value;
 
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              RadioListTile<String>(
-                value: opt.value,
-                groupValue: selected,
-                title: Text(opt.label),
-                contentPadding: EdgeInsets.zero,
-                visualDensity: VisualDensity.compact,
-                onChanged: (val) {
-                  if (val != null) ctrl.setAnswer(question.fieldName, val);
-                },
-              ),
-              // Show the "Other" free-text area when:
-              //  • this option has allowText == true  AND
-              //  • this option is currently selected
-              if (opt.allowText && isSelected)
-                Padding(
-                  padding:
-                  const EdgeInsets.only(left: 16, right: 4, bottom: 8),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Please specify:',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: cs.onSurfaceVariant,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      TextField(
-                        controller: ctrl.textControllers[
-                        'other_text_${question.fieldName}'],
-                        maxLines: 3,
-                        textCapitalization: TextCapitalization.sentences,
-                        decoration: InputDecoration(
-                          hintText: 'Enter details here…',
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          filled: true,
-                          fillColor:
-                          cs.surfaceContainerHighest.withOpacity(0.5),
-                          contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 12, vertical: 10),
-                        ),
-                      ),
-                    ],
-                  ),
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                RadioListTile<String>(
+                  value: opt.value,
+                  title: Text(opt.label),
+                  contentPadding: EdgeInsets.zero,
+                  visualDensity: VisualDensity.compact,
                 ),
-            ],
-          );
-        }).toList(),
+                // Show the "Other" free-text area when:
+                //  • this option has allowText == true  AND
+                //  • this option is currently selected
+                if (opt.allowText && isSelected)
+                  Padding(
+                    padding: const EdgeInsets.only(
+                      left: 16,
+                      right: 4,
+                      bottom: 8,
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Please specify:',
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(
+                                color: cs.onSurfaceVariant,
+                                fontWeight: FontWeight.w500,
+                              ),
+                        ),
+                        const SizedBox(height: 6),
+                        TextField(
+                          controller: ctrl
+                              .textControllers['other_text_${question.fieldName}'],
+                          maxLines: 3,
+                          textCapitalization: TextCapitalization.sentences,
+                          decoration: InputDecoration(
+                            hintText: 'Enter details here…',
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            filled: true,
+                            fillColor: cs.surfaceContainerHighest.withValues(
+                              alpha: 0.5,
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 10,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            );
+          }).toList(),
+        ),
       );
     });
   }
@@ -313,8 +313,10 @@ class _CheckboxInput extends StatelessWidget {
     return Obx(() {
       return Column(
         children: question.options.map((opt) {
-          final isChecked =
-          ctrl.isCheckboxSelected(question.fieldName, opt.value);
+          final isChecked = ctrl.isCheckboxSelected(
+            question.fieldName,
+            opt.value,
+          );
           return CheckboxListTile(
             value: isChecked,
             title: Text(opt.label),
@@ -322,8 +324,7 @@ class _CheckboxInput extends StatelessWidget {
             visualDensity: VisualDensity.compact,
             controlAffinity: ListTileControlAffinity.leading,
             onChanged: (val) {
-              ctrl.toggleCheckbox(
-                  question.fieldName, opt.value, val ?? false);
+              ctrl.toggleCheckbox(question.fieldName, opt.value, val ?? false);
             },
           );
         }).toList(),

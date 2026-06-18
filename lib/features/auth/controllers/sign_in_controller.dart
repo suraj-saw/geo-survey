@@ -1,5 +1,4 @@
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
@@ -7,7 +6,7 @@ import '../../../core/routes/app_routes.dart';
 import '../../../core/widgets/app_snackbar.dart';
 import '../../../data/repositories/auth_repository.dart';
 
-class SignInController {
+class SignInController extends GetxController {
   final _authRepo = AuthRepository();
 
   final emailController = TextEditingController();
@@ -26,21 +25,14 @@ class SignInController {
       bool isAdmin = false;
       try {
         final data = await _authRepo.getCurrentUserData();
-        debugPrint('>>> [SignIn] Firestore data fetched: $data');
-        debugPrint('>>> [SignIn] isAdmin raw value: ${data?['isAdmin']}');
-        debugPrint('>>> [SignIn] isAdmin type: ${data?['isAdmin'].runtimeType}');
         isAdmin = data?['isAdmin'] == true;
-        debugPrint('>>> [SignIn] isAdmin resolved: $isAdmin');
-      } catch (e) {
-        debugPrint('>>> [SignIn] ERROR fetching user data: $e');
+      } catch (_) {
         isAdmin = false;
       }
 
       if (isAdmin) {
-        debugPrint('>>> [SignIn] Routing to ADMIN');
         Get.offAllNamed(AppRoutes.homeAdmin);
       } else {
-        debugPrint('>>> [SignIn] Routing to ENUMERATOR');
         Get.offAllNamed(AppRoutes.homeEnumerator);
       }
     } on FirebaseAuthException catch (e) {
@@ -72,8 +64,10 @@ class SignInController {
     }
   }
 
-  void dispose() {
+  @override
+  void onClose() {
     emailController.dispose();
     passwordController.dispose();
+    super.onClose();
   }
 }

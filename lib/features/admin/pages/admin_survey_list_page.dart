@@ -29,10 +29,7 @@ class AdminSurveyListPage extends StatelessWidget {
           IconButton(
             icon: const Icon(Icons.logout_rounded),
             tooltip: 'Sign out',
-            onPressed: () async {
-              await AuthRepository().signOut();
-              Get.offAllNamed(AppRoutes.signIn);
-            },
+            onPressed: () => _confirmSignOut(context),
           ),
         ],
       ),
@@ -41,14 +38,23 @@ class AdminSurveyListPage extends StatelessWidget {
           return const Center(child: CircularProgressIndicator());
         }
 
+        if (ctrl.surveysError.value != null) {
+          return _LoadErrorState(
+            message: ctrl.surveysError.value!,
+            onRetry: ctrl.loadSurveys,
+          );
+        }
+
         if (ctrl.surveyStats.isEmpty) {
           return Center(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.assignment_outlined,
-                    size: 64,
-                    color: Theme.of(context).colorScheme.outline),
+                Icon(
+                  Icons.assignment_outlined,
+                  size: 64,
+                  color: Theme.of(context).colorScheme.outline,
+                ),
                 const SizedBox(height: 16),
                 Text(
                   'No surveys found',
@@ -64,7 +70,7 @@ class AdminSurveyListPage extends StatelessWidget {
         return ListView.separated(
           padding: const EdgeInsets.all(16),
           itemCount: ctrl.surveyStats.length,
-          separatorBuilder: (_, __) => const SizedBox(height: 12),
+          separatorBuilder: (context, index) => const SizedBox(height: 12),
           itemBuilder: (context, index) {
             final stats = ctrl.surveyStats[index];
             return _AdminSurveyCard(
@@ -78,15 +84,76 @@ class AdminSurveyListPage extends StatelessWidget {
   }
 
   Future<void> _openDetail(
-      BuildContext context, AdminController ctrl, Survey survey) async {
+    BuildContext context,
+    AdminController ctrl,
+    Survey survey,
+  ) async {
     await ctrl.openSurveyDetail(survey);
     if (context.mounted) {
-      Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => const AdminSurveyDetailPage(),
-        ),
-      );
+      Navigator.of(
+        context,
+      ).push(MaterialPageRoute(builder: (_) => const AdminSurveyDetailPage()));
     }
+  }
+
+  Future<void> _confirmSignOut(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Sign out?'),
+        content: const Text('You will need to sign in again to continue.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Sign out'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+    await AuthRepository().signOut();
+    Get.offAllNamed(AppRoutes.signIn);
+  }
+}
+
+class _LoadErrorState extends StatelessWidget {
+  final String message;
+  final VoidCallback onRetry;
+
+  const _LoadErrorState({required this.message, required this.onRetry});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.error_outline_rounded, size: 64, color: cs.error),
+            const SizedBox(height: 16),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              onPressed: onRetry,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Try again'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -134,9 +201,7 @@ class _AdminSurveyCard extends StatelessWidget {
                         Expanded(
                           child: Text(
                             stats.survey.title,
-                            style: Theme.of(context)
-                                .textTheme
-                                .titleSmall
+                            style: Theme.of(context).textTheme.titleSmall
                                 ?.copyWith(fontWeight: FontWeight.w700),
                           ),
                         ),
@@ -199,8 +264,8 @@ class _StatusBadge extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
         color: active
-            ? Colors.green.withOpacity(0.15)
-            : Colors.grey.withOpacity(0.15),
+            ? Colors.green.withValues(alpha: 0.15)
+            : Colors.grey.withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(20),
       ),
       child: Text(
@@ -219,15 +284,18 @@ class _StatChip extends StatelessWidget {
   final IconData icon;
   final String label;
   final Color color;
-  const _StatChip(
-      {required this.icon, required this.label, required this.color});
+  const _StatChip({
+    required this.icon,
+    required this.label,
+    required this.color,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Row(

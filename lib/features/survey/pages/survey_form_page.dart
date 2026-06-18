@@ -59,7 +59,32 @@ class _SurveyFormPageState extends State<SurveyFormPage> {
 
   SurveyController get ctrl => widget.ctrl;
 
-  void _handleBack(BuildContext context) {
+  Future<void> _handleBack(BuildContext context) async {
+    if (ctrl.hasUnsavedAnswers) {
+      final shouldDiscard = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Discard response?'),
+          content: const Text(
+            'Your current answers have not been submitted and will be lost.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Keep editing'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Discard'),
+            ),
+          ],
+        ),
+      );
+
+      if (shouldDiscard != true) return;
+    }
+
+    if (!context.mounted) return;
     // Only pop — closeSurvey() is called in dispose() after the page is
     // fully unmounted, ensuring controllers are not disposed while widgets
     // still reference them during the pop animation.
@@ -96,22 +121,23 @@ class _SurveyFormPageState extends State<SurveyFormPage> {
         body: _questionSnapshot.isEmpty
             ? const Center(child: Text('No questions found for this survey.'))
             : Column(
-          children: [
-            Expanded(
-              child: ListView.separated(
-                controller: _scrollController,
-                padding: const EdgeInsets.fromLTRB(16, 20, 16, 16),
-                itemCount: _questionSnapshot.length,
-                separatorBuilder: (_, __) => const Divider(height: 32),
-                itemBuilder: (context, index) {
-                  final q = _questionSnapshot[index];
-                  return QuestionWidget(question: q, ctrl: ctrl);
-                },
+                children: [
+                  Expanded(
+                    child: ListView.separated(
+                      controller: _scrollController,
+                      padding: const EdgeInsets.fromLTRB(16, 20, 16, 16),
+                      itemCount: _questionSnapshot.length,
+                      separatorBuilder: (context, index) =>
+                          const Divider(height: 32),
+                      itemBuilder: (context, index) {
+                        final q = _questionSnapshot[index];
+                        return QuestionWidget(question: q, ctrl: ctrl);
+                      },
+                    ),
+                  ),
+                  _SubmitBar(ctrl: ctrl),
+                ],
               ),
-            ),
-            _SubmitBar(ctrl: ctrl),
-          ],
-        ),
       ),
     );
   }
@@ -129,34 +155,35 @@ class _SubmitBar extends StatelessWidget {
         color: Theme.of(context).colorScheme.surface,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.08),
+            color: Colors.black.withValues(alpha: 0.08),
             blurRadius: 8,
             offset: const Offset(0, -2),
           ),
         ],
       ),
-      child: Obx(() => SizedBox(
-        width: double.infinity,
-        height: 52,
-        child: ElevatedButton.icon(
-          onPressed:
-          ctrl.isSubmitting.value ? null : ctrl.submitResponse,
-          icon: ctrl.isSubmitting.value
-              ? const SizedBox(
-            width: 20,
-            height: 20,
-            child: CircularProgressIndicator(
-                strokeWidth: 2.5, color: Colors.white),
-          )
-              : const Icon(Icons.check_circle_outline),
-          label: Text(
-            ctrl.isSubmitting.value
-                ? 'Submitting...'
-                : 'Submit Response',
-            style: const TextStyle(fontSize: 16),
+      child: Obx(
+        () => SizedBox(
+          width: double.infinity,
+          height: 52,
+          child: ElevatedButton.icon(
+            onPressed: ctrl.isSubmitting.value ? null : ctrl.submitResponse,
+            icon: ctrl.isSubmitting.value
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.5,
+                      color: Colors.white,
+                    ),
+                  )
+                : const Icon(Icons.check_circle_outline),
+            label: Text(
+              ctrl.isSubmitting.value ? 'Submitting...' : 'Submit Response',
+              style: const TextStyle(fontSize: 16),
+            ),
           ),
         ),
-      )),
+      ),
     );
   }
 }

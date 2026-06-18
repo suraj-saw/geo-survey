@@ -4,8 +4,11 @@ import 'package:get/get.dart';
 
 import '../../../core/routes/app_routes.dart';
 import '../../../core/widgets/app_snackbar.dart';
+import '../../../data/repositories/auth_repository.dart';
 
 class ForgotPasswordController extends GetxController {
+  final _authRepo = AuthRepository();
+
   final emailController = TextEditingController();
   final isLoading = false.obs;
   final emailSent = false.obs;
@@ -24,7 +27,7 @@ class ForgotPasswordController extends GetxController {
 
     isLoading.value = true;
     try {
-      await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
+      await _authRepo.sendPasswordResetEmail(email);
       emailSent.value = true;
     } on FirebaseAuthException catch (e) {
       final message = switch (e.code) {

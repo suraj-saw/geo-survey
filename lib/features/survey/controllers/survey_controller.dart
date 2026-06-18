@@ -16,6 +16,7 @@ class SurveyController extends GetxController {
   // ── Survey list state ──────────────────────────────────────────────────────
   final surveys = <Survey>[].obs;
   final isSurveysLoading = true.obs;
+  final RxnString surveysError = RxnString();
 
   // ── Active survey / form state ─────────────────────────────────────────────
   final Rx<Survey?> activeSurvey = Rx(null);
@@ -29,7 +30,7 @@ class SurveyController extends GetxController {
   /// fieldName → current answer value
   /// text/number/geocode  → String
   /// dropdown/radio       → String (selected value)
-  /// checkbox             → List<String> (selected values)
+  /// checkbox             → list of selected values
   /// radio with allowText → also stores "other_text_{fieldName}" → String
   final answers = <String, dynamic>{}.obs;
 
@@ -42,6 +43,7 @@ class SurveyController extends GetxController {
   /// Optional callback invoked after a successful submission so the UI layer
   /// can react (e.g. scroll to top).  Set by the form page and cleared on close.
   VoidCallback? onSubmitSuccess;
+  int _geocodeRequestToken = 0;
 
   @override
   void onInit() {
@@ -54,10 +56,12 @@ class SurveyController extends GetxController {
 
   Future<void> loadSurveys() async {
     isSurveysLoading.value = true;
+    surveysError.value = null;
     try {
       surveys.value = await _repo.getActiveSurveys();
     } catch (e) {
-      AppSnackbar.show('Error', 'Failed to load surveys. Please try again.');
+      surveysError.value = 'Failed to load surveys. Please try again.';
+      AppSnackbar.show('Error', surveysError.value!);
     } finally {
       isSurveysLoading.value = false;
     }
@@ -141,6 +145,7 @@ class SurveyController extends GetxController {
     textControllers.clear();
     answers.clear();
     geocodeLoading.clear();
+    _geocodeRequestToken++;
   }
 
   void _initControllers() {
@@ -165,7 +170,8 @@ class SurveyController extends GetxController {
   void _autoFillKnownFields() {
     for (final q in questions) {
       if (_isEnumeratorNameField(q)) {
-        final name = _cachedEnumeratorName ??
+        final name =
+            _cachedEnumeratorName ??
             _auth.currentUser?.displayName ??
             _auth.currentUser?.email ??
             '';
@@ -201,21 +207,58 @@ class SurveyController extends GetxController {
     _autoFetchGeocodeBackground();
   }
 
+  bool get hasUnsavedAnswers {
+    _syncTextAnswers();
+
+    for (final q in questions) {
+      final value = answers[q.fieldName];
+      if (q.type == 'geocode') continue;
+
+      if (_isEnumeratorNameField(q) &&
+          value == textControllers[q.fieldName]?.text) {
+        continue;
+      }
+
+      if (value is List && value.isNotEmpty) return true;
+      if (value is String && value.trim().isNotEmpty) return true;
+      if (value != null && value is! List && value is! String) return true;
+    }
+
+    for (final entry in answers.entries) {
+      if (!entry.key.startsWith('other_text_')) continue;
+      final value = entry.value;
+      if (value is String && value.trim().isNotEmpty) return true;
+    }
+
+    return false;
+  }
+
   // ── Geocode ────────────────────────────────────────────────────────────────
 
   /// Silently fetches geocode for all geocode questions in the background.
   void _autoFetchGeocodeBackground() {
-    final geocodeQuestions =
-    questions.where((q) => q.type == 'geocode').toList();
+    final geocodeQuestions = questions
+        .where((q) => q.type == 'geocode')
+        .toList();
     if (geocodeQuestions.isEmpty) return;
 
+    _geocodeRequestToken++;
     for (final q in geocodeQuestions) {
-      fetchGeocodeFor(q.fieldName, silent: true);
+      fetchGeocodeFor(
+        q.fieldName,
+        silent: true,
+        requestToken: _geocodeRequestToken,
+      );
     }
   }
 
   /// Fetches and stores the current GPS coordinates for [fieldName].
-  Future<void> fetchGeocodeFor(String fieldName, {bool silent = false}) async {
+  Future<void> fetchGeocodeFor(
+    String fieldName, {
+    bool silent = false,
+    int? requestToken,
+  }) async {
+    requestToken ??= ++_geocodeRequestToken;
     geocodeLoading[fieldName] = true;
 
     try {
@@ -223,7 +266,9 @@ class SurveyController extends GetxController {
       if (!serviceEnabled) {
         if (!silent) {
           AppSnackbar.show(
-              'Location Disabled', 'Please enable location services.');
+            'Location Disabled',
+            'Please enable location services.',
+          );
         }
         return;
       }
@@ -234,31 +279,40 @@ class SurveyController extends GetxController {
         if (permission == LocationPermission.denied) {
           if (!silent) {
             AppSnackbar.show(
-                'Permission Denied', 'Location permission is required.');
+              'Permission Denied',
+              'Location permission is required.',
+            );
           }
           return;
         }
       }
       if (permission == LocationPermission.deniedForever) {
         if (!silent) {
-          AppSnackbar.show('Permission Denied',
-              'Location permission is permanently denied. Enable it in settings.');
+          AppSnackbar.show(
+            'Permission Denied',
+            'Location permission is permanently denied. Enable it in settings.',
+          );
         }
         return;
       }
 
       final pos = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+        ),
       );
 
+      if (requestToken != _geocodeRequestToken) return;
       answers[fieldName] =
-      '${pos.latitude.toStringAsFixed(6)}, ${pos.longitude.toStringAsFixed(6)}';
+          '${pos.latitude.toStringAsFixed(6)}, ${pos.longitude.toStringAsFixed(6)}';
     } catch (e) {
       if (!silent) {
         AppSnackbar.show('Location Error', 'Could not fetch location: $e');
       }
     } finally {
-      geocodeLoading[fieldName] = false;
+      if (requestToken == _geocodeRequestToken) {
+        geocodeLoading[fieldName] = false;
+      }
     }
   }
 
@@ -361,13 +415,15 @@ class SurveyController extends GetxController {
       for (final q in questions) {
         final val = answers[q.fieldName];
         if (q.type == 'radio') {
-          final selectedOpt =
-              q.options.where((o) => o.value == val && o.allowText).firstOrNull;
+          final selectedOpt = q.options
+              .where((o) => o.value == val && o.allowText)
+              .firstOrNull;
           if (selectedOpt != null) {
             final otherText =
                 answers['other_text_${q.fieldName}']?.toString().trim() ?? '';
-            finalAnswers[q.fieldName] =
-            otherText.isNotEmpty ? 'Other: $otherText' : val;
+            finalAnswers[q.fieldName] = otherText.isNotEmpty
+                ? 'Other: $otherText'
+                : val;
           } else {
             finalAnswers[q.fieldName] = val;
           }
