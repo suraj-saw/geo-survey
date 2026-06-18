@@ -112,9 +112,9 @@ class _NumberInput extends StatelessWidget {
       inputFormatters: [
         FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
       ],
-      decoration: InputDecoration(
+      decoration: const InputDecoration(
         hintText: 'Enter number',
-        border: const OutlineInputBorder(),
+        border: OutlineInputBorder(),
       ),
     );
   }
@@ -129,46 +129,61 @@ class _GeocodeInput extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
     return Obx(() {
       final value = ctrl.answers[question.fieldName]?.toString() ?? '';
       final hasValue = value.isNotEmpty;
+      // Per-field loading flag added in the updated controller.
+      final isLoading = ctrl.geocodeLoading[question.fieldName] == true;
 
       return Container(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
         decoration: BoxDecoration(
           border: Border.all(
-            color: hasValue
-                ? Theme.of(context).colorScheme.primary
-                : Theme.of(context).colorScheme.outline,
+            color: hasValue ? cs.primary : cs.outline,
           ),
           borderRadius: BorderRadius.circular(4),
-          color: hasValue
-              ? Theme.of(context).colorScheme.primaryContainer.withOpacity(0.2)
-              : null,
+          color: hasValue ? cs.primaryContainer.withOpacity(0.2) : null,
         ),
         child: Row(
           children: [
-            Icon(
+            // Icon or spinner
+            isLoading
+                ? SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(
+                strokeWidth: 2.5,
+                color: cs.primary,
+              ),
+            )
+                : Icon(
               hasValue ? Icons.location_on : Icons.location_searching,
-              color: hasValue
-                  ? Theme.of(context).colorScheme.primary
-                  : Theme.of(context).colorScheme.outline,
+              color: hasValue ? cs.primary : cs.outline,
             ),
             const SizedBox(width: 12),
             Expanded(
               child: Text(
-                hasValue ? value : 'Fetching location...',
+                isLoading
+                    ? 'Fetching location…'
+                    : hasValue
+                    ? value
+                    : 'Location not yet available',
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: hasValue
-                      ? Theme.of(context).colorScheme.onSurface
-                      : Theme.of(context).colorScheme.outline,
+                  color: (isLoading || hasValue)
+                      ? cs.onSurface
+                      : cs.outline,
                 ),
               ),
             ),
+            // Refresh button — disabled while a fetch is already in progress
             IconButton(
               icon: const Icon(Icons.refresh),
               tooltip: 'Refresh location',
-              onPressed: () => ctrl.fetchGeocodeFor(question.fieldName),
+              onPressed: isLoading
+                  ? null
+                  : () => ctrl.fetchGeocodeFor(question.fieldName),
             ),
           ],
         ),
@@ -275,7 +290,8 @@ class _CheckboxInput extends StatelessWidget {
     return Obx(() {
       return Column(
         children: question.options.map((opt) {
-          final isChecked = ctrl.isCheckboxSelected(question.fieldName, opt.value);
+          final isChecked =
+          ctrl.isCheckboxSelected(question.fieldName, opt.value);
           return CheckboxListTile(
             value: isChecked,
             title: Text(opt.label),
@@ -283,7 +299,8 @@ class _CheckboxInput extends StatelessWidget {
             visualDensity: VisualDensity.compact,
             controlAffinity: ListTileControlAffinity.leading,
             onChanged: (val) {
-              ctrl.toggleCheckbox(question.fieldName, opt.value, val ?? false);
+              ctrl.toggleCheckbox(
+                  question.fieldName, opt.value, val ?? false);
             },
           );
         }).toList(),

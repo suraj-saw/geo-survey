@@ -9,21 +9,25 @@ class SurveyFormPage extends StatelessWidget {
 
   const SurveyFormPage({super.key, required this.ctrl});
 
+  void _handleBack(BuildContext context) {
+    ctrl.closeSurvey();
+    Navigator.of(context).pop();
+  }
+
   @override
   Widget build(BuildContext context) {
     return PopScope(
+      // Allow the pop but call closeSurvey first.
+      canPop: false,
       onPopInvokedWithResult: (didPop, _) {
-        if (didPop) ctrl.closeSurvey();
+        if (!didPop) _handleBack(context);
       },
       child: Scaffold(
         appBar: AppBar(
           title: Obx(() => Text(ctrl.activeSurvey.value?.title ?? 'Survey')),
           leading: IconButton(
             icon: const Icon(Icons.arrow_back),
-            onPressed: () {
-              ctrl.closeSurvey();
-              Navigator.of(context).pop();
-            },
+            onPressed: () => _handleBack(context),
           ),
         ),
         body: Obx(() {
@@ -32,7 +36,8 @@ class SurveyFormPage extends StatelessWidget {
           }
 
           if (ctrl.questions.isEmpty) {
-            return const Center(child: Text('No questions found for this survey.'));
+            return const Center(
+                child: Text('No questions found for this survey.'));
           }
 
           return Column(
@@ -79,7 +84,8 @@ class _SubmitBar extends StatelessWidget {
         width: double.infinity,
         height: 52,
         child: ElevatedButton.icon(
-          onPressed: ctrl.isSubmitting.value ? null : ctrl.submitResponse,
+          onPressed:
+          ctrl.isSubmitting.value ? null : ctrl.submitResponse,
           icon: ctrl.isSubmitting.value
               ? const SizedBox(
             width: 20,
@@ -89,7 +95,9 @@ class _SubmitBar extends StatelessWidget {
           )
               : const Icon(Icons.check_circle_outline),
           label: Text(
-            ctrl.isSubmitting.value ? 'Submitting...' : 'Submit Response',
+            ctrl.isSubmitting.value
+                ? 'Submitting...'
+                : 'Submit Response',
             style: const TextStyle(fontSize: 16),
           ),
         ),

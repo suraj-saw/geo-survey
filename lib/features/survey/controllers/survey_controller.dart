@@ -19,6 +19,9 @@ class SurveyController extends GetxController {
   final isQuestionsLoading = false.obs;
   final isSubmitting = false.obs;
 
+  /// Per-geocode-field loading state so the UI can show a spinner per field.
+  final geocodeLoading = <String, bool>{}.obs;
+
   /// fieldName → current answer value
   /// text/number/geocode  → String
   /// dropdown/radio       → String (selected value)
@@ -50,6 +53,8 @@ class SurveyController extends GetxController {
 
   // ── Open a survey ──────────────────────────────────────────────────────────
 
+  /// Opens a survey and navigates immediately. Location is fetched in the
+  /// background so the form appears without any delay.
   Future<void> openSurvey(Survey survey) async {
     activeSurvey.value = survey;
     isQuestionsLoading.value = true;
@@ -58,18 +63,31 @@ class SurveyController extends GetxController {
     try {
       questions.value = await _repo.getQuestions(survey.id);
       _initControllers();
-      await _autoFetchGeocode();
     } catch (e) {
       AppSnackbar.show('Error', 'Failed to load questions. Please try again.');
     } finally {
       isQuestionsLoading.value = false;
     }
+
+    // Kick off location fetching in the background — don't await, so the
+    // form page is pushed immediately and the geocode fields update once
+    // coordinates are available.
+    _autoFetchGeocodeBackground();
   }
 
+  /// Resets survey state safely without flickering the survey list.
+  /// We defer clearing [activeSurvey] to the next frame so that any
+  /// Obx widgets watching it don't see a null/empty value mid-navigation.
   void closeSurvey() {
-    activeSurvey.value = null;
-    questions.clear();
+    // Clear the heavy data straight away.
     _clearForm();
+    questions.clear();
+
+    // Defer the activeSurvey reset so the list page has already been
+    // re-inserted into the widget tree before its Obx re-evaluates.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      activeSurvey.value = null;
+    });
   }
 
   // ── Form helpers ───────────────────────────────────────────────────────────
@@ -80,6 +98,7 @@ class SurveyController extends GetxController {
     }
     textControllers.clear();
     answers.clear();
+    geocodeLoading.clear();
   }
 
   void _initControllers() {
@@ -101,22 +120,34 @@ class SurveyController extends GetxController {
 
   // ── Geocode ────────────────────────────────────────────────────────────────
 
-  Future<void> _autoFetchGeocode() async {
+  /// Silently fetches geocode for all geocode questions in the background.
+  /// Errors are swallowed; users can tap the refresh button to retry.
+  void _autoFetchGeocodeBackground() {
     final geocodeQuestions =
     questions.where((q) => q.type == 'geocode').toList();
     if (geocodeQuestions.isEmpty) return;
 
     for (final q in geocodeQuestions) {
-      await fetchGeocodeFor(q.fieldName);
+      // Fire-and-forget; individual fields show their own loading state.
+      fetchGeocodeFor(q.fieldName, silent: true);
     }
   }
 
-  Future<void> fetchGeocodeFor(String fieldName) async {
+  /// Fetches and stores the current GPS coordinates for [fieldName].
+  ///
+  /// [silent] — when true, permission/service errors are not shown as
+  /// snackbars (used during automatic background fetch). The user can
+  /// always tap the refresh icon to retry with feedback.
+  Future<void> fetchGeocodeFor(String fieldName, {bool silent = false}) async {
+    geocodeLoading[fieldName] = true;
+
     try {
       bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
-        AppSnackbar.show(
-            'Location Disabled', 'Please enable location services.');
+        if (!silent) {
+          AppSnackbar.show(
+              'Location Disabled', 'Please enable location services.');
+        }
         return;
       }
 
@@ -124,14 +155,18 @@ class SurveyController extends GetxController {
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
         if (permission == LocationPermission.denied) {
-          AppSnackbar.show(
-              'Permission Denied', 'Location permission is required.');
+          if (!silent) {
+            AppSnackbar.show(
+                'Permission Denied', 'Location permission is required.');
+          }
           return;
         }
       }
       if (permission == LocationPermission.deniedForever) {
-        AppSnackbar.show('Permission Denied',
-            'Location permission is permanently denied. Enable it in settings.');
+        if (!silent) {
+          AppSnackbar.show('Permission Denied',
+              'Location permission is permanently denied. Enable it in settings.');
+        }
         return;
       }
 
@@ -142,7 +177,11 @@ class SurveyController extends GetxController {
       answers[fieldName] =
       '${pos.latitude.toStringAsFixed(6)}, ${pos.longitude.toStringAsFixed(6)}';
     } catch (e) {
-      AppSnackbar.show('Location Error', 'Could not fetch location: $e');
+      if (!silent) {
+        AppSnackbar.show('Location Error', 'Could not fetch location: $e');
+      }
+    } finally {
+      geocodeLoading[fieldName] = false;
     }
   }
 
@@ -201,7 +240,7 @@ class SurveyController extends GetxController {
         if (list.isEmpty) return '"${q.label}" is required.';
       } else if (q.type == 'geocode') {
         if (val == null || val.toString().isEmpty) {
-          return '"${q.label}" — location not yet fetched. Tap refresh.';
+          return '"${q.label}" — location not yet fetched. Tap the refresh icon next to the field.';
         }
       } else {
         if (val == null || val.toString().trim().isEmpty) {

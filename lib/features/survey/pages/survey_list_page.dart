@@ -36,10 +36,14 @@ class SurveyListPage extends StatelessWidget {
         ],
       ),
       body: Obx(() {
+        // While surveys are loading show a spinner — this is the initial
+        // load only. On return from a form we preserve the existing list.
         if (ctrl.isSurveysLoading.value) {
           return const Center(child: CircularProgressIndicator());
         }
 
+        // surveys.isEmpty is only a "real" empty state when loading is done
+        // AND we have confirmed there is nothing in the list.
         if (ctrl.surveys.isEmpty) {
           return Center(
             child: Column(
@@ -76,8 +80,10 @@ class SurveyListPage extends StatelessWidget {
     );
   }
 
-  void _openSurvey(
+  Future<void> _openSurvey(
       BuildContext context, SurveyController ctrl, Survey survey) async {
+    // openSurvey now returns as soon as questions are loaded — it no longer
+    // awaits location, so this push happens quickly.
     await ctrl.openSurvey(survey);
     if (context.mounted) {
       Navigator.of(context).push(
@@ -110,9 +116,7 @@ class _SurveyCard extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: Theme.of(context)
-                      .colorScheme
-                      .primaryContainer,
+                  color: Theme.of(context).colorScheme.primaryContainer,
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Icon(
