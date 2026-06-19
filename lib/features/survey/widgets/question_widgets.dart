@@ -240,10 +240,6 @@ class _GeocodeInput extends StatelessWidget {
 }
 
 // ── Dropdown ──────────────────────────────────────────────────────────────────
-//
-// KEY CHANGE: onChanged now calls ctrl.selectOption(fieldName, option)
-// instead of ctrl.setAnswer(fieldName, value).  This allows the controller
-// to handle showGroup branching whenever the user picks a new option.
 
 class _DropdownInput extends StatelessWidget {
   final SurveyQuestion question;
@@ -272,10 +268,10 @@ class _DropdownInput extends StatelessWidget {
             .toList(),
         onChanged: (val) {
           if (val == null) return;
-          // Find the full option object so we can pass showGroup.
-          final option = question.options
-              .firstWhere((o) => o.value == val,
-              orElse: () => SurveyOption(label: val, value: val));
+          final option = question.options.firstWhere(
+                (o) => o.value == val,
+            orElse: () => SurveyOption(label: val, value: val),
+          );
           ctrl.selectOption(question.fieldName, option);
         },
       );
@@ -285,8 +281,9 @@ class _DropdownInput extends StatelessWidget {
 
 // ── Radio ─────────────────────────────────────────────────────────────────────
 //
-// KEY CHANGE: onChanged now calls ctrl.selectOption(fieldName, option)
-// so the showGroup on the chosen option activates the correct branch.
+// FIX: Removed the undefined `RadioGroup` wrapper widget.  Each `RadioListTile`
+// now receives `groupValue` and `onChanged` directly — this is the standard
+// Flutter pattern for mutually-exclusive radio buttons.
 
 class _RadioInput extends StatelessWidget {
   final SurveyQuestion question;
@@ -300,88 +297,83 @@ class _RadioInput extends StatelessWidget {
     return Obx(() {
       final selected = ctrl.answers[question.fieldName] as String?;
 
-      return RadioGroup<String>(
-        groupValue: selected,
-        onChanged: (val) {
-          if (val == null) return;
-          final option = question.options
-              .firstWhere((o) => o.value == val,
-              orElse: () => SurveyOption(label: val, value: val));
-          ctrl.selectOption(question.fieldName, option);
-        },
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: question.options.map((opt) {
-            final isSelected = selected == opt.value;
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: question.options.map((opt) {
+          final isSelected = selected == opt.value;
 
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                RadioListTile<String>(
-                  value: opt.value,
-                  title: Text(opt.label),
-                  contentPadding: EdgeInsets.zero,
-                  visualDensity: VisualDensity.compact,
-                ),
-                // Show the "Other" free-text area when:
-                //  • this option has allowText == true  AND
-                //  • this option is currently selected
-                if (opt.allowText && isSelected)
-                  Padding(
-                    padding: const EdgeInsets.only(
-                      left: 16,
-                      right: 4,
-                      bottom: 8,
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Please specify:',
-                          style: Theme.of(context).textTheme.bodySmall
-                              ?.copyWith(
-                            color: cs.onSurfaceVariant,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        TextField(
-                          controller: ctrl
-                              .textControllers['other_text_${question.fieldName}'],
-                          maxLines: 3,
-                          textCapitalization: TextCapitalization.sentences,
-                          decoration: InputDecoration(
-                            hintText: 'Enter details here…',
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            filled: true,
-                            fillColor: cs.surfaceContainerHighest.withValues(
-                              alpha: 0.5,
-                            ),
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 10,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              RadioListTile<String>(
+                value: opt.value,
+                groupValue: selected,          // ← fixed: passed directly here
+                title: Text(opt.label),
+                contentPadding: EdgeInsets.zero,
+                visualDensity: VisualDensity.compact,
+                onChanged: (val) {             // ← fixed: passed directly here
+                  if (val == null) return;
+                  final option = question.options.firstWhere(
+                        (o) => o.value == val,
+                    orElse: () => SurveyOption(label: val, value: val),
+                  );
+                  ctrl.selectOption(question.fieldName, option);
+                },
+              ),
+              // Show the "Other" free-text area when:
+              //  • this option has allowText == true  AND
+              //  • this option is currently selected
+              if (opt.allowText && isSelected)
+                Padding(
+                  padding: const EdgeInsets.only(
+                    left: 16,
+                    right: 4,
+                    bottom: 8,
                   ),
-              ],
-            );
-          }).toList(),
-        ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Please specify:',
+                        style: Theme.of(context).textTheme.bodySmall
+                            ?.copyWith(
+                          color: cs.onSurfaceVariant,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      TextField(
+                        controller: ctrl.textControllers[
+                        'other_text_${question.fieldName}'],
+                        maxLines: 3,
+                        textCapitalization: TextCapitalization.sentences,
+                        decoration: InputDecoration(
+                          hintText: 'Enter details here…',
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          filled: true,
+                          fillColor: cs.surfaceContainerHighest.withValues(
+                            alpha: 0.5,
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 10,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          );
+        }).toList(),
       );
     });
   }
 }
 
 // ── Checkbox ──────────────────────────────────────────────────────────────────
-//
-// Checkbox selections do NOT drive group branching (the spec only mentions
-// dropdown / radio for showGroup).  They still use onAnswerChanged via
-// toggleCheckbox, which runs _removeHiddenAnswers for legacy visibleIf.
 
 class _CheckboxInput extends StatelessWidget {
   final SurveyQuestion question;
@@ -411,11 +403,10 @@ class _CheckboxInput extends StatelessWidget {
                 visualDensity: VisualDensity.compact,
                 controlAffinity: ListTileControlAffinity.leading,
                 onChanged: (val) {
-                  ctrl.toggleCheckbox(question.fieldName, opt.value, val ?? false);
+                  ctrl.toggleCheckbox(
+                      question.fieldName, opt.value, val ?? false);
                 },
               ),
-              // Show a free-text field for "Other"-style options
-              // (allowText == true) only while that option is checked.
               if (opt.allowText && isChecked)
                 Padding(
                   padding: const EdgeInsets.only(
@@ -498,7 +489,8 @@ class _MatrixInput extends StatelessWidget {
                 decoration: BoxDecoration(color: cs.surfaceContainerHighest),
                 children: [
                   const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    padding:
+                    EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                     child: SizedBox(width: 110),
                   ),
                   ...question.columns.map(

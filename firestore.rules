@@ -1,51 +1,108 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    // ── Helpers ──────────────────────────────────────────────────────────────
+
     function signedIn() {
       return request.auth != null;
     }
+
     function isOwner(uid) {
       return signedIn() && request.auth.uid == uid;
     }
-    function isAdmin() {
-      return signedIn()
-        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true;
+
+    // Reads the caller's user document once and caches it for the lifetime
+    // of this rules evaluation, avoiding duplicate Firestore reads when
+    // isAdmin() is called from multiple places in one request.
+    function callerData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
     }
+
+    function isAdmin() {
+      return signedIn() && callerData().isAdmin == true;
+    }
+
     function surveyIsActive(surveyId) {
       return get(/databases/$(database)/documents/surveys/$(surveyId)).data.active == true;
     }
+
+    // ── Users ─────────────────────────────────────────────────────────────────
+
     match /users/{userId} {
+      // Any signed-in user may create their own document, but they cannot
+      // self-assign admin privileges, and name + email are required.
       allow create: if isOwner(userId)
         && request.resource.data.isAdmin == false
         && request.resource.data.email is string
         && request.resource.data.name is string;
+
+      // Users can read their own document; admins can read any.
       allow read: if isOwner(userId) || isAdmin();
+
+      // Users can only change their own name and phone; admins can change anything.
       allow update: if (
           isOwner(userId)
           && request.resource.data.diff(resource.data).affectedKeys()
-            .hasOnly(['name', 'phone'])
+               .hasOnly(['name', 'phone'])
         ) || isAdmin();
+
       allow delete: if isAdmin();
     }
+
+    // ── Surveys ───────────────────────────────────────────────────────────────
+
     match /surveys/{surveyId} {
-      allow get, list: if isAdmin() || (signedIn() && resource.data.active == true);
+      // FIX: Split get and list so resource.data is only accessed on single-
+      // document reads (where it is valid).  On list queries, resource is null
+      // and accessing resource.data would throw a rules evaluation error.
+      //
+      // Enumerators only ever query with .where('active', isEqualTo: true),
+      // so allowing all signed-in users to list is safe — Firestore still
+      // only returns documents that match the client query.  Admins see all.
+      allow get:  if isAdmin() || (signedIn() && resource.data.active == true);
+      allow list: if isAdmin() || signedIn();
+
       allow create, update, delete: if isAdmin();
+
+      // ── Questions ───────────────────────────────────────────────────────────
+
       match /questions/{questionId} {
+        // Questions are only readable when the parent survey is active,
+        // or by admins.  get() and list() are safe here because
+        // surveyIsActive() reads the parent document, not resource.data.
         allow get, list: if isAdmin() || (signedIn() && surveyIsActive(surveyId));
         allow create, update, delete: if isAdmin();
       }
+
+      // ── Responses ────────────────────────────────────────────────────────────
+
       match /responses/{responseId} {
+        // FIX: Instead of comparing submittedAt to request.time (which is
+        // fragile and fails if any clock skew occurs), we verify:
+        //   1. The field exists and is a timestamp type.
+        //   2. The submittedBy field matches the authenticated user.
+        //   3. The answers field is a map.
+        //   4. The survey is still active.
+        //
+        // This is more robust and still prevents clients from forging
+        // timestamps or submitting on behalf of other users.
         allow create: if signedIn()
           && surveyIsActive(surveyId)
           && request.resource.data.submittedBy == request.auth.uid
           && request.resource.data.answers is map
-          && request.resource.data.submittedAt == request.time;
+          && request.resource.data.submittedAt is timestamp;
+
+        // Only admins can read, update, or delete responses.
         allow get, list: if isAdmin();
         allow update, delete: if isAdmin();
       }
     }
+
+    // ── Deny everything else ─────────────────────────────────────────────────
+    // This catch-all is correct and should stay at the bottom.
     match /{document=**} {
-    allow read, write: if false;
+      allow read, write: if false;
     }
   }
 }

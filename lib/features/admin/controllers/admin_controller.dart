@@ -114,13 +114,37 @@ class AdminController extends GetxController {
   List<SurveyQuestion> get _storableQuestions =>
       questions.where((q) => !q.isDisplayOnly).toList();
 
-  /// Formats a stored answer value for CSV / table display.
-  static String formatAnswerValue(dynamic val) {
+  // ── Answer formatting for CSV ─────────────────────────────────────────────
+
+  /// Formats a stored answer value for CSV display.
+  ///
+  /// Most answer types (text, number, geocode, radio, dropdown, checkbox) are
+  /// already stored as human-readable labels by [SurveyController.submitResponse].
+  ///
+  /// Matrix answers are stored as {rowValue: columnInt}.  This method
+  /// resolves rowValue → rowLabel using the question's [rows] definition,
+  /// producing a readable string like "Cost: 3, Comfort: 4, Safety: 5".
+  String _formatAnswer(SurveyQuestion question, dynamic val) {
     if (val == null) return '';
-    if (val is List) return val.join(', ');
-    if (val is Map) {
-      return val.entries.map((e) => '${e.key}: ${e.value}').join(', ');
+
+    if (question.type == 'matrix' && val is Map) {
+      // Build a rowValue → rowLabel lookup from the question definition.
+      final rowLabelFor = {
+        for (final row in question.rows) row.value: row.label,
+      };
+      // Produce "RowLabel: columnValue" pairs joined by ", ".
+      final parts = val.entries.map((e) {
+        final label = rowLabelFor[e.key.toString()] ?? e.key.toString();
+        return '$label: ${e.value}';
+      }).toList();
+      return parts.join(', ');
     }
+
+    if (val is List) {
+      // Checkbox answers — already stored as labels by the submit logic.
+      return val.map((e) => e.toString()).join(', ');
+    }
+
     return val.toString();
   }
 
@@ -136,10 +160,13 @@ class AdminController extends GetxController {
     try {
       final storable = _storableQuestions;
 
-      // Build header row from question labels + meta columns.
-      final fieldNames = storable.map((q) => q.fieldName).toList();
-      final headerLabels = storable.map((q) => q.label).toList();
-      final header = ['S.No', 'Submitted By', 'Submitted At', ...headerLabels];
+      // Build header row: meta columns + one column per question (by label).
+      final header = [
+        'S.No',
+        'Submitted By',
+        'Submitted At',
+        ...storable.map((q) => q.label),
+      ];
 
       // Build data rows.
       final rows = <List<dynamic>>[];
@@ -150,9 +177,12 @@ class AdminController extends GetxController {
           enumeratorName(r.submittedBy),
           r.submittedAt?.toLocal().toString() ?? '',
         ];
-        for (final fn in fieldNames) {
-          row.add(formatAnswerValue(r.answers[fn]));
+
+        for (final q in storable) {
+          final val = r.answers[q.fieldName];
+          row.add(_formatAnswer(q, val));
         }
+
         rows.add(row);
       }
 
@@ -169,10 +199,6 @@ class AdminController extends GetxController {
 
       AppSnackbar.show('Exported', 'CSV saved to:\n${file.path}');
 
-      // Try to open the file with the system default app. Passing an
-      // explicit MIME type avoids Android routing the file to a
-      // spreadsheet app that expects a binary .xls/.xlsx structure (which
-      // then reports the plain-text CSV as "corrupted").
       try {
         final result = await OpenFile.open(file.path, type: 'text/csv');
         if (result.type != ResultType.done) {
