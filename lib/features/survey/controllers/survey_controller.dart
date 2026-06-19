@@ -77,7 +77,7 @@ class SurveyController extends GetxController {
       final doc = await _firestore.collection('users').doc(uid).get();
       _cachedEnumeratorName = doc.data()?['name'] as String?;
     } catch (_) {
-      // Best-effort; fall back to email display name if available.
+      // Best-effort; fall back to Firebase Auth display name if available.
       _cachedEnumeratorName = _auth.currentUser?.displayName;
     }
   }
@@ -108,6 +108,14 @@ class SurveyController extends GetxController {
     try {
       questions.value = await _repo.getQuestions(survey.id);
       _initControllers();
+
+      // If the background prefetch (started in onInit) hasn't completed yet,
+      // wait for it now so _autoFillKnownFields gets the real name — not null,
+      // which would otherwise fall through to the email fallback.
+      if (_cachedEnumeratorName == null) {
+        await _prefetchEnumeratorName();
+      }
+
       _autoFillKnownFields();
     } catch (e) {
       AppSnackbar.show('Error', 'Failed to load questions. Please try again.');
@@ -170,10 +178,10 @@ class SurveyController extends GetxController {
   void _autoFillKnownFields() {
     for (final q in questions) {
       if (_isEnumeratorNameField(q)) {
-        final name =
-            _cachedEnumeratorName ??
+        // Use the Firestore 'name' field first, then Firebase Auth display name.
+        // Never fall back to email — that is the wrong value for this field.
+        final name = _cachedEnumeratorName ??
             _auth.currentUser?.displayName ??
-            _auth.currentUser?.email ??
             '';
         if (name.isNotEmpty) {
           answers[q.fieldName] = name;
@@ -254,10 +262,10 @@ class SurveyController extends GetxController {
 
   /// Fetches and stores the current GPS coordinates for [fieldName].
   Future<void> fetchGeocodeFor(
-    String fieldName, {
-    bool silent = false,
-    int? requestToken,
-  }) async {
+      String fieldName, {
+        bool silent = false,
+        int? requestToken,
+      }) async {
     requestToken ??= ++_geocodeRequestToken;
     geocodeLoading[fieldName] = true;
 
@@ -304,7 +312,7 @@ class SurveyController extends GetxController {
 
       if (requestToken != _geocodeRequestToken) return;
       answers[fieldName] =
-          '${pos.latitude.toStringAsFixed(6)}, ${pos.longitude.toStringAsFixed(6)}';
+      '${pos.latitude.toStringAsFixed(6)}, ${pos.longitude.toStringAsFixed(6)}';
     } catch (e) {
       if (!silent) {
         AppSnackbar.show('Location Error', 'Could not fetch location: $e');

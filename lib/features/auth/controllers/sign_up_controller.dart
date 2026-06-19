@@ -1,5 +1,4 @@
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
 import '../../../core/routes/app_routes.dart';
@@ -9,23 +8,29 @@ import '../../../data/repositories/auth_repository.dart';
 class SignUpController extends GetxController {
   final _authRepo = AuthRepository();
 
-  final nameController = TextEditingController();
-  final phoneController = TextEditingController();
-  final emailController = TextEditingController();
-  final passwordController = TextEditingController();
-
   final isLoading = false.obs;
   final isPasswordVisible = false.obs;
 
-  Future<void> signUp() async {
+  Future<void> signUp({
+    required String name,
+    required String email,
+    required String phone,
+    required String password,
+  }) async {
     isLoading.value = true;
     try {
       await _authRepo.signUp(
-        name: nameController.text.trim(),
-        email: emailController.text.trim(),
-        phone: phoneController.text.trim(),
-        password: passwordController.text.trim(),
+        name: name.trim(),
+        email: email.trim(),
+        phone: phone.trim(),
+        password: password.trim(),
       );
+
+      // Firebase automatically signs the user in after createUserWithEmailAndPassword.
+      // Sign out immediately so the RootPage auth-state listener returns to the
+      // unauthenticated state before we navigate — otherwise Get.offAllNamed
+      // would land on a RootPage that shows HomeEnumeratorPage instead of SignIn.
+      await _authRepo.signOut();
 
       AppSnackbar.show(
         'Account Created',
@@ -68,14 +73,5 @@ class SignUpController extends GetxController {
       default:
         return fallback ?? 'Sign up failed. Please try again.';
     }
-  }
-
-  @override
-  void onClose() {
-    nameController.dispose();
-    phoneController.dispose();
-    emailController.dispose();
-    passwordController.dispose();
-    super.onClose();
   }
 }

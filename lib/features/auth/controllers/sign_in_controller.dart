@@ -1,5 +1,4 @@
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
 import '../../../core/routes/app_routes.dart';
@@ -9,17 +8,18 @@ import '../../../data/repositories/auth_repository.dart';
 class SignInController extends GetxController {
   final _authRepo = AuthRepository();
 
-  final emailController = TextEditingController();
-  final passwordController = TextEditingController();
   final isLoading = false.obs;
   final isPasswordVisible = false.obs;
 
-  Future<void> signIn() async {
+  Future<void> signIn({
+    required String email,
+    required String password,
+  }) async {
     isLoading.value = true;
     try {
       await _authRepo.signIn(
-        email: emailController.text.trim(),
-        password: passwordController.text.trim(),
+        email: email.trim(),
+        password: password.trim(),
       );
 
       bool isAdmin = false;
@@ -62,12 +62,5 @@ class SignInController extends GetxController {
       default:
         return fallback ?? 'Sign in failed. Please try again.';
     }
-  }
-
-  @override
-  void onClose() {
-    emailController.dispose();
-    passwordController.dispose();
-    super.onClose();
   }
 }

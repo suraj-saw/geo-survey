@@ -1,24 +1,19 @@
 rules_version = '2';
-
 service cloud.firestore {
   match /databases/{database}/documents {
     function signedIn() {
       return request.auth != null;
     }
-
     function isOwner(uid) {
       return signedIn() && request.auth.uid == uid;
     }
-
     function isAdmin() {
       return signedIn()
         && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true;
     }
-
     function surveyIsActive(surveyId) {
       return get(/databases/$(database)/documents/surveys/$(surveyId)).data.active == true;
     }
-
     match /users/{userId} {
       allow create: if isOwner(userId)
         && request.resource.data.isAdmin == false
@@ -32,16 +27,13 @@ service cloud.firestore {
         ) || isAdmin();
       allow delete: if isAdmin();
     }
-
     match /surveys/{surveyId} {
       allow get, list: if isAdmin() || (signedIn() && resource.data.active == true);
       allow create, update, delete: if isAdmin();
-
       match /questions/{questionId} {
         allow get, list: if isAdmin() || (signedIn() && surveyIsActive(surveyId));
         allow create, update, delete: if isAdmin();
       }
-
       match /responses/{responseId} {
         allow create: if signedIn()
           && surveyIsActive(surveyId)
@@ -52,9 +44,8 @@ service cloud.firestore {
         allow update, delete: if isAdmin();
       }
     }
-
     match /{document=**} {
-      allow read, write: if false;
+    allow read, write: if false;
     }
   }
 }

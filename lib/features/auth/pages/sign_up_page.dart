@@ -4,16 +4,43 @@ import 'package:get/get.dart';
 import '../../../core/routes/app_routes.dart';
 import '../controllers/sign_up_controller.dart';
 
-class SignUpPage extends StatelessWidget {
-  SignUpPage({super.key});
+class SignUpPage extends StatefulWidget {
+  const SignUpPage({super.key});
+
+  @override
+  State<SignUpPage> createState() => _SignUpPageState();
+}
+
+class _SignUpPageState extends State<SignUpPage> {
   final _formKey = GlobalKey<FormState>();
+
+  // TextEditingControllers tied to widget lifecycle, not GetX controller lifecycle
+  final _nameController = TextEditingController();
+  final _phoneController = TextEditingController();
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
+
+  late final SignUpController _ctrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = Get.isRegistered<SignUpController>()
+        ? Get.find<SignUpController>()
+        : Get.put(SignUpController());
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _phoneController.dispose();
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    final ctrl = Get.isRegistered<SignUpController>()
-        ? Get.find<SignUpController>()
-        : Get.put(SignUpController());
-
     return Scaffold(
       appBar: AppBar(title: const Text('Create Account')),
       body: SafeArea(
@@ -28,7 +55,7 @@ class SignUpPage extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     TextFormField(
-                      controller: ctrl.nameController,
+                      controller: _nameController,
                       textCapitalization: TextCapitalization.words,
                       decoration: const InputDecoration(
                         labelText: 'Full Name',
@@ -40,7 +67,7 @@ class SignUpPage extends StatelessWidget {
                     ),
                     const SizedBox(height: 16),
                     TextFormField(
-                      controller: ctrl.phoneController,
+                      controller: _phoneController,
                       keyboardType: TextInputType.phone,
                       decoration: const InputDecoration(
                         labelText: 'Phone Number',
@@ -55,7 +82,7 @@ class SignUpPage extends StatelessWidget {
                     ),
                     const SizedBox(height: 16),
                     TextFormField(
-                      controller: ctrl.emailController,
+                      controller: _emailController,
                       keyboardType: TextInputType.emailAddress,
                       decoration: const InputDecoration(
                         labelText: 'Email',
@@ -73,16 +100,16 @@ class SignUpPage extends StatelessWidget {
                     ),
                     const SizedBox(height: 16),
                     Obx(() => TextFormField(
-                      controller: ctrl.passwordController,
-                      obscureText: !ctrl.isPasswordVisible.value,
+                      controller: _passwordController,
+                      obscureText: !_ctrl.isPasswordVisible.value,
                       decoration: InputDecoration(
                         labelText: 'Password',
                         prefixIcon: const Icon(Icons.lock_outline),
                         suffixIcon: IconButton(
-                          icon: Icon(ctrl.isPasswordVisible.value
+                          icon: Icon(_ctrl.isPasswordVisible.value
                               ? Icons.visibility_off_outlined
                               : Icons.visibility_outlined),
-                          onPressed: () => ctrl.isPasswordVisible.toggle(),
+                          onPressed: () => _ctrl.isPasswordVisible.toggle(),
                         ),
                       ),
                       validator: (v) {
@@ -97,14 +124,19 @@ class SignUpPage extends StatelessWidget {
                     Obx(() => SizedBox(
                       height: 50,
                       child: ElevatedButton(
-                        onPressed: ctrl.isLoading.value
+                        onPressed: _ctrl.isLoading.value
                             ? null
                             : () {
                           if (_formKey.currentState!.validate()) {
-                            ctrl.signUp();
+                            _ctrl.signUp(
+                              name: _nameController.text,
+                              email: _emailController.text,
+                              phone: _phoneController.text,
+                              password: _passwordController.text,
+                            );
                           }
                         },
-                        child: ctrl.isLoading.value
+                        child: _ctrl.isLoading.value
                             ? const SizedBox(
                           width: 22,
                           height: 22,

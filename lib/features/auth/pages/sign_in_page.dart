@@ -13,6 +13,11 @@ class SignInPage extends StatefulWidget {
 
 class _SignInPageState extends State<SignInPage> {
   final _formKey = GlobalKey<FormState>();
+
+  // TextEditingControllers live here, tied to widget lifecycle
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
+
   late final SignInController _ctrl;
 
   @override
@@ -21,6 +26,13 @@ class _SignInPageState extends State<SignInPage> {
     _ctrl = Get.isRegistered<SignInController>()
         ? Get.find<SignInController>()
         : Get.put(SignInController());
+  }
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
   }
 
   @override
@@ -57,7 +69,7 @@ class _SignInPageState extends State<SignInPage> {
                     ),
                     const SizedBox(height: 32),
                     TextFormField(
-                      controller: _ctrl.emailController,
+                      controller: _emailController,
                       keyboardType: TextInputType.emailAddress,
                       decoration: const InputDecoration(
                         labelText: 'Email',
@@ -76,8 +88,8 @@ class _SignInPageState extends State<SignInPage> {
                     ),
                     const SizedBox(height: 16),
                     Obx(
-                      () => TextFormField(
-                        controller: _ctrl.passwordController,
+                          () => TextFormField(
+                        controller: _passwordController,
                         obscureText: !_ctrl.isPasswordVisible.value,
                         decoration: InputDecoration(
                           labelText: 'Password',
@@ -105,25 +117,28 @@ class _SignInPageState extends State<SignInPage> {
                     ),
                     const SizedBox(height: 12),
                     Obx(
-                      () => SizedBox(
+                          () => SizedBox(
                         height: 50,
                         child: ElevatedButton(
                           onPressed: _ctrl.isLoading.value
                               ? null
                               : () {
-                                  if (_formKey.currentState!.validate()) {
-                                    _ctrl.signIn();
-                                  }
-                                },
+                            if (_formKey.currentState!.validate()) {
+                              _ctrl.signIn(
+                                email: _emailController.text,
+                                password: _passwordController.text,
+                              );
+                            }
+                          },
                           child: _ctrl.isLoading.value
                               ? const SizedBox(
-                                  width: 22,
-                                  height: 22,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2.5,
-                                    color: Colors.white,
-                                  ),
-                                )
+                            width: 22,
+                            height: 22,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2.5,
+                              color: Colors.white,
+                            ),
+                          )
                               : const Text('Sign In'),
                         ),
                       ),
