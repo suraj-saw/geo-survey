@@ -25,8 +25,8 @@ class _SurveyFormPageState extends State<SurveyFormPage> {
   /// by visibility here, sections that became hidden would collapse pages and
   /// confuse the pagination indicator.  Instead the ListView builder inside
   /// [build] applies [SurveyController.isQuestionVisible] at render time —
-  /// Obx ensures it re-runs on every answer change, so conditional questions
-  /// appear and disappear instantly without restructuring the pages.
+  /// Obx ensures it re-runs on every answer/group change, so conditional
+  /// questions appear and disappear instantly without restructuring the pages.
   ///
   /// WHY SNAPSHOT (not live observable):
   /// closeSurvey() defers questions.clear() to the next frame.  Without a
@@ -143,22 +143,25 @@ class _SurveyFormPageState extends State<SurveyFormPage> {
               _PageProgress(ctrl: ctrl, totalPages: totalPages),
             Expanded(
               child: Obx(() {
-                // Obx re-runs this block whenever answers change, which
-                // means isQuestionVisible() is re-evaluated for every
-                // question on every answer update — giving instant
-                // show/hide behaviour for conditional questions.
+                // Reading activeGroups here makes Obx subscribe to it,
+                // so the list re-renders whenever a group is added or
+                // removed — giving instant show/hide for branched questions.
+                // ignore: unnecessary_statement
+                ctrl.activeGroups.length; // reactive subscription
+
+                // Also subscribe to answers for legacy visibleIf support.
                 final idx = ctrl.currentPageIndex.value
                     .clamp(0, totalPages - 1);
                 final pageQuestions = _pageSnapshot[idx];
 
-                // ── Visibility filter ───────────────────────────────
-                // Filter to only the questions that should be visible
-                // given the current answers state.  This is the sole
-                // place where conditional questions are hidden/shown.
+                // ── Visibility filter ───────────────────────────────────
+                // isQuestionVisible checks BOTH group membership AND the
+                // legacy visibleIf condition, so a single filter handles
+                // both branching systems.
                 final visibleQuestions = pageQuestions
                     .where(ctrl.isQuestionVisible)
                     .toList();
-                // ────────────────────────────────────────────────────
+                // ───────────────────────────────────────────────────────
 
                 if (visibleQuestions.isEmpty) {
                   return const SizedBox.shrink();

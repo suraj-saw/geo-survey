@@ -57,6 +57,136 @@ class SurveyController extends GetxController {
   int _geocodeRequestToken = 0;
 
   // ══════════════════════════════════════════════════════════════════════════
+  // GROUP MANAGEMENT
+  // ══════════════════════════════════════════════════════════════════════════
+  //
+  // Every question belongs to exactly one group (default: "main").
+  // "main" is always active.  Conditional groups are activated when the
+  // user selects an option whose showGroup field is set.
+  //
+  // activeGroups drives which questions are visible and which answers are
+  // validated / saved.
+  //
+  // openedGroups tracks which group (if any) was opened by each question,
+  // so when the user changes their answer the old group can be cleanly
+  // removed before the new one is added.
+
+  /// Groups currently active — questions whose group is in this set are shown.
+  /// Starts with only "main" so all questions default to visible.
+  final activeGroups = <String>{'main'}.obs;
+
+  /// fieldName → groupName opened by that field's currently selected option.
+  /// Used to close the old branch when the user changes their selection.
+  final Map<String, String> _openedGroups = {};
+
+  // ── Public group helpers ───────────────────────────────────────────────────
+
+  /// Returns true when [question] is in an active group AND passes the
+  /// legacy visibleIf condition (if any).
+  bool isQuestionInActiveGroup(SurveyQuestion question) {
+    return activeGroups.contains(question.group);
+  }
+
+  /// Full visibility check: group membership AND legacy visibleIf condition.
+  bool isQuestionVisible(SurveyQuestion question) {
+    // 1. Group gate — question must belong to an active group.
+    if (!activeGroups.contains(question.group)) return false;
+
+    // 2. Legacy visibleIf gate (kept for backwards compatibility).
+    final condition = question.visibleIf;
+    if (condition == null) return true;
+
+    final currentAnswer = answers[condition.fieldName];
+
+    if (currentAnswer is List) {
+      return currentAnswer
+          .map((e) => e.toString())
+          .contains(condition.value?.toString());
+    }
+
+    return currentAnswer?.toString() == condition.value?.toString();
+  }
+
+  /// Called by dropdown / radio widgets when the user picks an option.
+  ///
+  /// 1. Saves the answer normally.
+  /// 2. Closes the group previously opened by this field (if any) and
+  ///    removes the answers that belonged to it — including answers from
+  ///    any nested groups that were opened inside it.
+  /// 3. Opens the new group (if the selected option has showGroup set).
+  void onOptionSelected(String fieldName, String value, String? showGroup) {
+    // Step 1 — save the answer.
+    answers[fieldName] = value;
+
+    // Step 2 — close old branch opened by this field.
+    final oldGroup = _openedGroups[fieldName];
+    if (oldGroup != null) {
+      _closeGroupRecursively(oldGroup);
+      _openedGroups.remove(fieldName);
+    }
+
+    // Step 3 — open new branch.
+    if (showGroup != null && showGroup.isNotEmpty) {
+      activeGroups.add(showGroup);
+      _openedGroups[fieldName] = showGroup;
+    }
+  }
+
+  /// Recursively removes a group and every nested group that was opened
+  /// from questions inside it.
+  void _closeGroupRecursively(String groupName) {
+    // Find every question in this group that itself opened a child group.
+    for (final q in questions) {
+      if (q.group != groupName) continue;
+      final childGroup = _openedGroups[q.fieldName];
+      if (childGroup != null) {
+        _closeGroupRecursively(childGroup);
+        _openedGroups.remove(q.fieldName);
+      }
+    }
+
+    // Remove answers that belong to this group.
+    _removeGroupAnswers(groupName);
+
+    // Deactivate the group itself.
+    activeGroups.remove(groupName);
+  }
+
+  /// Clears stored answers for every question that belongs to [groupName].
+  void _removeGroupAnswers(String groupName) {
+    for (final q in questions) {
+      if (q.group != groupName) continue;
+      if (q.isDisplayOnly) continue;
+
+      answers.remove(q.fieldName);
+      textControllers[q.fieldName]?.clear();
+
+      // Also clear ancillary free-text keys.
+      if (q.type == 'radio') {
+        final key = 'other_text_${q.fieldName}';
+        answers.remove(key);
+        textControllers[key]?.clear();
+      }
+      if (q.type == 'checkbox') {
+        for (final opt in q.options) {
+          if (!opt.allowText) continue;
+          final key = '${q.fieldName}_${opt.value}';
+          answers.remove(key);
+          textControllers[key]?.clear();
+        }
+      }
+    }
+  }
+
+  /// Resets all group state to its initial value: only "main" is active.
+  void _resetGroups() {
+    activeGroups
+      ..clear()
+      ..add('main');
+    _openedGroups.clear();
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
   // PAGINATION
   // ══════════════════════════════════════════════════════════════════════════
   //
@@ -96,33 +226,8 @@ class SurveyController extends GetxController {
   }
 
   // ══════════════════════════════════════════════════════════════════════════
-  // VISIBILITY
+  // VISIBILITY  (group + legacy visibleIf combined)
   // ══════════════════════════════════════════════════════════════════════════
-
-  /// Returns true when [question] should be shown to the user.
-  ///
-  /// • Questions without [visibleIf] are always visible (backwards-compatible
-  ///   with every survey that existed before this feature was added).
-  /// • A conditional question is visible only when the current answer to the
-  ///   dependency field exactly matches the expected value.
-  /// • If the dependency is a checkbox (List), we check containment instead
-  ///   of equality so e.g. visibleIf: { fieldName:"modes", value:"air" }
-  ///   works even when multiple checkboxes are selected.
-  bool isQuestionVisible(SurveyQuestion question) {
-    final condition = question.visibleIf;
-    if (condition == null) return true; // no condition → always visible
-
-    final currentAnswer = answers[condition.fieldName];
-
-    if (currentAnswer is List) {
-      // Dependency is a multi-select checkbox → check containment.
-      return currentAnswer
-          .map((e) => e.toString())
-          .contains(condition.value?.toString());
-    }
-
-    return currentAnswer?.toString() == condition.value?.toString();
-  }
 
   /// All currently-visible questions (across every page).
   /// Used for final validation and for building the submitted response.
@@ -138,11 +243,11 @@ class SurveyController extends GetxController {
   // ANSWER MANAGEMENT
   // ══════════════════════════════════════════════════════════════════════════
 
-  /// Central entry-point for every answer change that originates from the UI.
+  /// Central entry-point for answer changes that do NOT trigger group
+  /// branching (text, number, geocode, checkbox, matrix).
   ///
-  /// 1. Stores the new value.
-  /// 2. Removes stored answers for any questions that just became hidden as a
-  ///    result of the change (so hidden data is never submitted).
+  /// For dropdown / radio that have showGroup on their options, use
+  /// [onOptionSelected] instead so the group logic runs.
   void onAnswerChanged(String fieldName, dynamic value) {
     answers[fieldName] = value;
     _removeHiddenAnswers();
@@ -151,8 +256,8 @@ class SurveyController extends GetxController {
   /// Walks every question and clears the answer + associated text-controller
   /// content for anything that is currently not visible.
   ///
-  /// This ensures that if a user selects "Air", fills in air_class, then
-  /// switches to "Bus", the air_class answer is wiped before submission.
+  /// This handles legacy visibleIf conditions — group-based cleanup is
+  /// handled separately in [_removeGroupAnswers].
   void _removeHiddenAnswers() {
     for (final q in questions) {
       if (q.isDisplayOnly)       continue;
@@ -308,6 +413,7 @@ class SurveyController extends GetxController {
     geocodeLoading.clear();
     _geocodeRequestToken++;
     currentPageIndex.value = 0;
+    _resetGroups();
   }
 
   void _initControllers() {
@@ -361,6 +467,7 @@ class SurveyController extends GetxController {
   void resetFormForNewEntry() {
     answers.clear();
     geocodeLoading.clear();
+    _resetGroups();
 
     // Reset controllers without disposing — they are still in the tree.
     for (final c in textControllers.values) {
@@ -380,7 +487,7 @@ class SurveyController extends GetxController {
     _syncTextAnswers();
 
     for (final q in questions) {
-      if (q.isDisplayOnly)      continue;
+      if (q.isDisplayOnly)       continue;
       if (!isQuestionVisible(q)) continue; // hidden questions don't count
 
       final value = answers[q.fieldName];
@@ -473,8 +580,8 @@ class SurveyController extends GetxController {
       );
 
       if (requestToken != _geocodeRequestToken) return;
-      // Use onAnswerChanged so that if a geocode field somehow has a
-      // visibleIf condition, the cleanup still runs.
+      // Use onAnswerChanged so the answer map stays consistent.
+      // Geocode never has showGroup so this path is correct.
       onAnswerChanged(
         fieldName,
         '${pos.latitude.toStringAsFixed(6)}, '
@@ -492,11 +599,21 @@ class SurveyController extends GetxController {
   }
 
   // ══════════════════════════════════════════════════════════════════════════
-  // ANSWER SETTERS  (all route through onAnswerChanged)
+  // ANSWER SETTERS
   // ══════════════════════════════════════════════════════════════════════════
 
   void setAnswer(String fieldName, dynamic value) {
     onAnswerChanged(fieldName, value);
+  }
+
+  /// Use this for dropdown / radio selections.
+  ///
+  /// [selectedOption] is the full option object so we can read showGroup.
+  /// Falls back to [onAnswerChanged] behaviour if the option has no showGroup.
+  void selectOption(String fieldName, SurveyOption selectedOption) {
+    onOptionSelected(fieldName, selectedOption.value, selectedOption.showGroup);
+    // After group changes, also run legacy hidden-answer cleanup.
+    _removeHiddenAnswers();
   }
 
   void toggleCheckbox(String fieldName, String value, bool selected) {
@@ -646,7 +763,7 @@ class SurveyController extends GetxController {
       // Build the final answers map.
       // Rules:
       //   • Skip display-only questions (section / subsection).
-      //   • Skip currently-hidden questions (visibleIf not satisfied).
+      //   • Skip currently-hidden questions (not in active group / visibleIf).
       //   • Skip questions with an empty fieldName (config error — log it).
       final finalAnswers = <String, dynamic>{};
 

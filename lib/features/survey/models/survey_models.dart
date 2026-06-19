@@ -27,10 +27,16 @@ class SurveyOption {
   final String value;
   final bool allowText; // "Other" style options that need free text
 
+  /// When this option is selected (radio/dropdown), the named group
+  /// becomes active, revealing all questions tagged with that group.
+  /// null means this option does not open any conditional branch.
+  final String? showGroup;
+
   const SurveyOption({
     required this.label,
     required this.value,
     this.allowText = false,
+    this.showGroup,
   });
 
   factory SurveyOption.fromMap(Map<String, dynamic> map) {
@@ -38,6 +44,7 @@ class SurveyOption {
       label: map['label'] as String? ?? '',
       value: map['value']?.toString() ?? '',
       allowText: map['allowText'] == true,
+      showGroup: map['showGroup'] as String?,
     );
   }
 }
@@ -67,11 +74,20 @@ class SurveyQuestion {
   /// Used by matrix (the rating scale, e.g. [1, 2, 3, 4, 5]).
   final List<int> columns;
 
-  /// Optional visibility condition.
+  /// Optional visibility condition (legacy, pre-group system).
   ///
   /// • null  → always visible  (all old surveys without this field)
   /// • set   → visible only when [VisibleCondition] is satisfied
   final VisibleCondition? visibleIf;
+
+  /// The display group this question belongs to.
+  ///
+  /// • "main"  → always shown (default for all questions that don't specify a group,
+  ///             keeps every existing survey working without changes)
+  /// • anything else → shown only when that group is in the active set
+  ///
+  /// Firestore field: "group". If absent, defaults to "main".
+  final String group;
 
   const SurveyQuestion({
     required this.id,
@@ -84,6 +100,7 @@ class SurveyQuestion {
     this.rows = const [],
     this.columns = const [],
     this.visibleIf,
+    this.group = 'main',
   });
 
   /// Section / subsection are pure UI headings: no input, never validated,
@@ -102,14 +119,17 @@ class SurveyQuestion {
       visibleIf = VisibleCondition.fromMap(rawVisibleIf);
     }
 
+    // Parse group — default to "main" if absent so old surveys keep working.
+    final group = (map['group'] as String?)?.trim();
+
     return SurveyQuestion(
-      id:       id,
+      id:        id,
       fieldName: map['fieldName'] as String? ?? '',
-      label:    map['label']     as String? ?? '',
-      order:    (map['order']    as num?)?.toInt() ?? 0,
-      required: map['required'] == true,
-      type:     map['type']      as String? ?? 'text',
-      options:  rawOptions
+      label:     map['label']     as String? ?? '',
+      order:     (map['order']    as num?)?.toInt() ?? 0,
+      required:  map['required'] == true,
+      type:      map['type']      as String? ?? 'text',
+      options:   rawOptions
           .map((o) => SurveyOption.fromMap(o as Map<String, dynamic>))
           .toList(),
       rows: rawRows
@@ -117,6 +137,7 @@ class SurveyQuestion {
           .toList(),
       columns:  rawColumns.map((c) => (c as num).toInt()).toList(),
       visibleIf: visibleIf,
+      group: (group == null || group.isEmpty) ? 'main' : group,
     );
   }
 }

@@ -1,3 +1,5 @@
+// lib/features/survey/widgets/question_widgets.dart
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
@@ -238,6 +240,10 @@ class _GeocodeInput extends StatelessWidget {
 }
 
 // ── Dropdown ──────────────────────────────────────────────────────────────────
+//
+// KEY CHANGE: onChanged now calls ctrl.selectOption(fieldName, option)
+// instead of ctrl.setAnswer(fieldName, value).  This allows the controller
+// to handle showGroup branching whenever the user picks a new option.
 
 class _DropdownInput extends StatelessWidget {
   final SurveyQuestion question;
@@ -265,7 +271,12 @@ class _DropdownInput extends StatelessWidget {
         )
             .toList(),
         onChanged: (val) {
-          if (val != null) ctrl.setAnswer(question.fieldName, val);
+          if (val == null) return;
+          // Find the full option object so we can pass showGroup.
+          final option = question.options
+              .firstWhere((o) => o.value == val,
+              orElse: () => SurveyOption(label: val, value: val));
+          ctrl.selectOption(question.fieldName, option);
         },
       );
     });
@@ -273,6 +284,9 @@ class _DropdownInput extends StatelessWidget {
 }
 
 // ── Radio ─────────────────────────────────────────────────────────────────────
+//
+// KEY CHANGE: onChanged now calls ctrl.selectOption(fieldName, option)
+// so the showGroup on the chosen option activates the correct branch.
 
 class _RadioInput extends StatelessWidget {
   final SurveyQuestion question;
@@ -289,7 +303,11 @@ class _RadioInput extends StatelessWidget {
       return RadioGroup<String>(
         groupValue: selected,
         onChanged: (val) {
-          if (val != null) ctrl.setAnswer(question.fieldName, val);
+          if (val == null) return;
+          final option = question.options
+              .firstWhere((o) => o.value == val,
+              orElse: () => SurveyOption(label: val, value: val));
+          ctrl.selectOption(question.fieldName, option);
         },
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -360,6 +378,10 @@ class _RadioInput extends StatelessWidget {
 }
 
 // ── Checkbox ──────────────────────────────────────────────────────────────────
+//
+// Checkbox selections do NOT drive group branching (the spec only mentions
+// dropdown / radio for showGroup).  They still use onAnswerChanged via
+// toggleCheckbox, which runs _removeHiddenAnswers for legacy visibleIf.
 
 class _CheckboxInput extends StatelessWidget {
   final SurveyQuestion question;
