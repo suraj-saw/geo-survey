@@ -1,3 +1,25 @@
+// lib/features/survey/models/survey_models.dart
+
+/// Condition that controls whether a question is shown.
+///
+/// A question is visible only when the answer stored under [fieldName]
+/// equals [value].  If a question's [SurveyQuestion.visibleIf] is null
+/// the question is always visible — this keeps every existing survey that
+/// was created before this feature was added working without any changes.
+class VisibleCondition {
+  final String fieldName;
+  final dynamic value;
+
+  const VisibleCondition({required this.fieldName, required this.value});
+
+  factory VisibleCondition.fromMap(Map<String, dynamic> map) {
+    return VisibleCondition(
+      fieldName: map['fieldName'] as String? ?? '',
+      value: map['value'],
+    );
+  }
+}
+
 /// Represents a single selectable option in dropdown / radio / checkbox
 /// questions, and a single row in matrix questions.
 class SurveyOption {
@@ -42,8 +64,14 @@ class SurveyQuestion {
   /// Used by matrix (the rated items, e.g. Cost / Comfort / Safety).
   final List<SurveyOption> rows;
 
-  /// Used by matrix (the rating scale, e.g. [1,2,3,4,5]).
+  /// Used by matrix (the rating scale, e.g. [1, 2, 3, 4, 5]).
   final List<int> columns;
+
+  /// Optional visibility condition.
+  ///
+  /// • null  → always visible  (all old surveys without this field)
+  /// • set   → visible only when [VisibleCondition] is satisfied
+  final VisibleCondition? visibleIf;
 
   const SurveyQuestion({
     required this.id,
@@ -55,6 +83,7 @@ class SurveyQuestion {
     required this.options,
     this.rows = const [],
     this.columns = const [],
+    this.visibleIf,
   });
 
   /// Section / subsection are pure UI headings: no input, never validated,
@@ -63,23 +92,31 @@ class SurveyQuestion {
 
   factory SurveyQuestion.fromMap(String id, Map<String, dynamic> map) {
     final rawOptions = map['options'] as List<dynamic>? ?? [];
-    final rawRows = map['rows'] as List<dynamic>? ?? [];
+    final rawRows    = map['rows']    as List<dynamic>? ?? [];
     final rawColumns = map['columns'] as List<dynamic>? ?? [];
 
+    // Parse visibleIf — null-safe so surveys without the field keep working.
+    VisibleCondition? visibleIf;
+    final rawVisibleIf = map['visibleIf'];
+    if (rawVisibleIf is Map<String, dynamic>) {
+      visibleIf = VisibleCondition.fromMap(rawVisibleIf);
+    }
+
     return SurveyQuestion(
-      id: id,
+      id:       id,
       fieldName: map['fieldName'] as String? ?? '',
-      label: map['label'] as String? ?? '',
-      order: (map['order'] as num?)?.toInt() ?? 0,
+      label:    map['label']     as String? ?? '',
+      order:    (map['order']    as num?)?.toInt() ?? 0,
       required: map['required'] == true,
-      type: map['type'] as String? ?? 'text',
-      options: rawOptions
+      type:     map['type']      as String? ?? 'text',
+      options:  rawOptions
           .map((o) => SurveyOption.fromMap(o as Map<String, dynamic>))
           .toList(),
       rows: rawRows
           .map((o) => SurveyOption.fromMap(o as Map<String, dynamic>))
           .toList(),
-      columns: rawColumns.map((c) => (c as num).toInt()).toList(),
+      columns:  rawColumns.map((c) => (c as num).toInt()).toList(),
+      visibleIf: visibleIf,
     );
   }
 }
@@ -100,10 +137,10 @@ class Survey {
 
   factory Survey.fromMap(String id, Map<String, dynamic> map) {
     return Survey(
-      id: id,
-      title: map['title'] as String? ?? '',
+      id:          id,
+      title:       map['title']       as String? ?? '',
       description: map['description'] as String? ?? '',
-      active: map['active'] == true,
+      active:      map['active'] == true,
     );
   }
 }
