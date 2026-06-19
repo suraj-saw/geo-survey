@@ -14,6 +14,15 @@ class QuestionWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Section / subsection are headings only — no label-with-asterisk,
+    // no input widget.
+    if (question.type == 'section') {
+      return _SectionHeading(question: question);
+    }
+    if (question.type == 'subsection') {
+      return _SubsectionHeading(question: question);
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -38,9 +47,58 @@ class QuestionWidget extends StatelessWidget {
         return _RadioInput(question: question, ctrl: ctrl);
       case 'checkbox':
         return _CheckboxInput(question: question, ctrl: ctrl);
+      case 'matrix':
+        return _MatrixInput(question: question, ctrl: ctrl);
       default:
         return _TextInput(question: question, ctrl: ctrl);
     }
+  }
+}
+
+// ── Section / Subsection headings ──────────────────────────────────────────
+
+class _SectionHeading extends StatelessWidget {
+  final SurveyQuestion question;
+  const _SectionHeading({required this.question});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        color: cs.primaryContainer,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Text(
+        question.label,
+        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+          fontWeight: FontWeight.w800,
+          color: cs.onPrimaryContainer,
+        ),
+      ),
+    );
+  }
+}
+
+class _SubsectionHeading extends StatelessWidget {
+  final SurveyQuestion question;
+  const _SubsectionHeading({required this.question});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Text(
+        question.label,
+        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+          fontWeight: FontWeight.w700,
+          color: cs.primary,
+        ),
+      ),
+    );
   }
 }
 
@@ -141,17 +199,17 @@ class _GeocodeInput extends StatelessWidget {
           children: [
             isLoading
                 ? SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2.5,
-                      color: cs.primary,
-                    ),
-                  )
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(
+                strokeWidth: 2.5,
+                color: cs.primary,
+              ),
+            )
                 : Icon(
-                    hasValue ? Icons.location_on : Icons.location_searching,
-                    color: hasValue ? cs.primary : cs.outline,
-                  ),
+              hasValue ? Icons.location_on : Icons.location_searching,
+              color: hasValue ? cs.primary : cs.outline,
+            ),
             const SizedBox(width: 12),
             Expanded(
               child: Text(
@@ -203,8 +261,8 @@ class _DropdownInput extends StatelessWidget {
         items: question.options
             .map(
               (opt) =>
-                  DropdownMenuItem(value: opt.value, child: Text(opt.label)),
-            )
+              DropdownMenuItem(value: opt.value, child: Text(opt.label)),
+        )
             .toList(),
         onChanged: (val) {
           if (val != null) ctrl.setAnswer(question.fieldName, val);
@@ -264,9 +322,9 @@ class _RadioInput extends StatelessWidget {
                           'Please specify:',
                           style: Theme.of(context).textTheme.bodySmall
                               ?.copyWith(
-                                color: cs.onSurfaceVariant,
-                                fontWeight: FontWeight.w500,
-                              ),
+                            color: cs.onSurfaceVariant,
+                            fontWeight: FontWeight.w500,
+                          ),
                         ),
                         const SizedBox(height: 6),
                         TextField(
@@ -310,24 +368,172 @@ class _CheckboxInput extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
     return Obx(() {
       return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: question.options.map((opt) {
           final isChecked = ctrl.isCheckboxSelected(
             question.fieldName,
             opt.value,
           );
-          return CheckboxListTile(
-            value: isChecked,
-            title: Text(opt.label),
-            contentPadding: EdgeInsets.zero,
-            visualDensity: VisualDensity.compact,
-            controlAffinity: ListTileControlAffinity.leading,
-            onChanged: (val) {
-              ctrl.toggleCheckbox(question.fieldName, opt.value, val ?? false);
-            },
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              CheckboxListTile(
+                value: isChecked,
+                title: Text(opt.label),
+                contentPadding: EdgeInsets.zero,
+                visualDensity: VisualDensity.compact,
+                controlAffinity: ListTileControlAffinity.leading,
+                onChanged: (val) {
+                  ctrl.toggleCheckbox(question.fieldName, opt.value, val ?? false);
+                },
+              ),
+              // Show a free-text field for "Other"-style options
+              // (allowText == true) only while that option is checked.
+              if (opt.allowText && isChecked)
+                Padding(
+                  padding: const EdgeInsets.only(
+                    left: 32,
+                    right: 4,
+                    bottom: 8,
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Please specify:',
+                        style: Theme.of(context).textTheme.bodySmall
+                            ?.copyWith(
+                          color: cs.onSurfaceVariant,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      TextField(
+                        controller: ctrl.textControllers[
+                        '${question.fieldName}_${opt.value}'],
+                        maxLines: 2,
+                        textCapitalization: TextCapitalization.sentences,
+                        decoration: InputDecoration(
+                          hintText: 'Enter details here…',
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          filled: true,
+                          fillColor: cs.surfaceContainerHighest.withValues(
+                            alpha: 0.5,
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 10,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
           );
         }).toList(),
+      );
+    });
+  }
+}
+
+// ── Matrix ────────────────────────────────────────────────────────────────────
+
+class _MatrixInput extends StatelessWidget {
+  final SurveyQuestion question;
+  final SurveyController ctrl;
+  const _MatrixInput({required this.question, required this.ctrl});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
+    return Obx(() {
+      final current = ctrl.matrixAnswerFor(question.fieldName);
+
+      return Container(
+        decoration: BoxDecoration(
+          border: Border.all(color: cs.outlineVariant),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Table(
+            defaultColumnWidth: const IntrinsicColumnWidth(),
+            border: TableBorder(
+              horizontalInside: BorderSide(color: cs.outlineVariant),
+            ),
+            children: [
+              TableRow(
+                decoration: BoxDecoration(color: cs.surfaceContainerHighest),
+                children: [
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    child: SizedBox(width: 110),
+                  ),
+                  ...question.columns.map(
+                        (c) => Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 10,
+                      ),
+                      child: SizedBox(
+                        width: 36,
+                        child: Text(
+                          '$c',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              ...question.rows.map((row) {
+                final selected = current[row.value];
+                return TableRow(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 4,
+                      ),
+                      child: SizedBox(
+                        width: 110,
+                        child: Text(row.label),
+                      ),
+                    ),
+                    ...question.columns.map((c) {
+                      return SizedBox(
+                        width: 56,
+                        child: Radio<int>(
+                          value: c,
+                          groupValue: selected,
+                          onChanged: (val) {
+                            if (val == null) return;
+                            ctrl.setMatrixAnswer(
+                              question.fieldName,
+                              row.value,
+                              val,
+                            );
+                          },
+                        ),
+                      );
+                    }),
+                  ],
+                );
+              }),
+            ],
+          ),
+        ),
       );
     });
   }

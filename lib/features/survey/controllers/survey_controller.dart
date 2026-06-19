@@ -30,8 +30,11 @@ class SurveyController extends GetxController {
   /// fieldName → current answer value
   /// text/number/geocode  → String
   /// dropdown/radio       → String (selected value)
-  /// checkbox             → list of selected values
+  /// checkbox             → List<String> of selected values
+  /// matrix               → Map<String, int> (row value → selected column)
   /// radio with allowText → also stores "other_text_{fieldName}" → String
+  /// checkbox with allowText → also stores "{fieldName}_{optionValue}" → String
+  /// section/subsection   → never present here
   final answers = <String, dynamic>{}.obs;
 
   /// TextEditingControllers keyed by fieldName (text, number, other-text inputs)
@@ -44,6 +47,60 @@ class SurveyController extends GetxController {
   /// can react (e.g. scroll to top).  Set by the form page and cleared on close.
   VoidCallback? onSubmitSuccess;
   int _geocodeRequestToken = 0;
+
+  // ── Pagination ───────────────────────────────────────────────────────────
+  //
+  // Large forms are split into pages using `section` questions as page
+  // breaks — each `section` starts a new page, `subsection` stays as just
+  // a header within the current page. Surveys with zero or one `section`
+  // (e.g. existing single-page surveys) naturally collapse to one page,
+  // so nothing changes for them.
+
+  final currentPageIndex = 0.obs;
+
+  List<List<SurveyQuestion>> get pages {
+    if (questions.isEmpty) return [];
+    final result = <List<SurveyQuestion>>[];
+    var current = <SurveyQuestion>[];
+    for (final q in questions) {
+      if (q.type == 'section' && current.isNotEmpty) {
+        result.add(current);
+        current = [q];
+      } else {
+        current.add(q);
+      }
+    }
+    if (current.isNotEmpty) result.add(current);
+    return result;
+  }
+
+  int get pageCount => pages.length;
+  bool get isFirstPage => currentPageIndex.value == 0;
+  bool get isLastPage => currentPageIndex.value >= pageCount - 1;
+
+  List<SurveyQuestion> get currentPageQuestions {
+    final p = pages;
+    if (p.isEmpty) return [];
+    final idx = currentPageIndex.value.clamp(0, p.length - 1);
+    return p[idx];
+  }
+
+  /// Validates only the required questions on the current page, advances
+  /// to the next page if they pass, and shows an error if they don't.
+  void goToNextPage() {
+    final error = _validateQuestions(currentPageQuestions);
+    if (error != null) {
+      AppSnackbar.show('Incomplete', error);
+      return;
+    }
+    if (!isLastPage) currentPageIndex.value++;
+  }
+
+  /// Going back never re-validates — the enumerator should always be able
+  /// to revisit earlier answers.
+  void goToPreviousPage() {
+    if (!isFirstPage) currentPageIndex.value--;
+  }
 
   @override
   void onInit() {
@@ -154,18 +211,31 @@ class SurveyController extends GetxController {
     answers.clear();
     geocodeLoading.clear();
     _geocodeRequestToken++;
+    currentPageIndex.value = 0;
   }
 
   void _initControllers() {
     for (final q in questions) {
+      if (q.isDisplayOnly) continue;
+
       if (q.type == 'text' || q.type == 'number') {
         textControllers[q.fieldName] = TextEditingController();
       }
-      // For radio "other" text fields
+      // For radio "other" text fields.
       if (q.type == 'radio') {
         for (final opt in q.options) {
           if (opt.allowText) {
             textControllers['other_text_${q.fieldName}'] =
+                TextEditingController();
+          }
+        }
+      }
+      // For checkbox "other"-style text fields — one per allowText option,
+      // keyed as "{fieldName}_{optionValue}" (e.g. "transport_mode_other").
+      if (q.type == 'checkbox') {
+        for (final opt in q.options) {
+          if (opt.allowText) {
+            textControllers['${q.fieldName}_${opt.value}'] =
                 TextEditingController();
           }
         }
@@ -213,12 +283,17 @@ class SurveyController extends GetxController {
 
     // Re-fetch geocode in the background for the new entry.
     _autoFetchGeocodeBackground();
+
+    // Start the next entry from page 1.
+    currentPageIndex.value = 0;
   }
 
   bool get hasUnsavedAnswers {
     _syncTextAnswers();
 
     for (final q in questions) {
+      if (q.isDisplayOnly) continue;
+
       final value = answers[q.fieldName];
       if (q.type == 'geocode') continue;
 
@@ -228,8 +303,14 @@ class SurveyController extends GetxController {
       }
 
       if (value is List && value.isNotEmpty) return true;
+      if (value is Map && value.isNotEmpty) return true;
       if (value is String && value.trim().isNotEmpty) return true;
-      if (value != null && value is! List && value is! String) return true;
+      if (value != null &&
+          value is! List &&
+          value is! Map &&
+          value is! String) {
+        return true;
+      }
     }
 
     for (final entry in answers.entries) {
@@ -345,11 +426,27 @@ class SurveyController extends GetxController {
     return current.contains(value);
   }
 
+  /// Returns the current matrix selections for [fieldName] as
+  /// Map<rowValue, selectedColumn>.
+  Map<String, int> matrixAnswerFor(String fieldName) {
+    final raw = answers[fieldName] as Map?;
+    if (raw == null) return {};
+    return raw.map((k, v) => MapEntry(k.toString(), (v as num).toInt()));
+  }
+
+  void setMatrixAnswer(String fieldName, String rowValue, int column) {
+    final current = matrixAnswerFor(fieldName);
+    current[rowValue] = column;
+    answers[fieldName] = current;
+  }
+
   // ── Validation & submit ────────────────────────────────────────────────────
 
   /// Syncs text controller values into [answers] before validating.
   void _syncTextAnswers() {
     for (final q in questions) {
+      if (q.isDisplayOnly) continue;
+
       if (q.type == 'text' || q.type == 'number') {
         final text = textControllers[q.fieldName]?.text.trim() ?? '';
         answers[q.fieldName] = text;
@@ -363,13 +460,28 @@ class SurveyController extends GetxController {
           }
         }
       }
+      if (q.type == 'checkbox') {
+        for (final opt in q.options) {
+          if (!opt.allowText) continue;
+          final key = '${q.fieldName}_${opt.value}';
+          final text = textControllers[key]?.text.trim() ?? '';
+          if (text.isNotEmpty) {
+            answers[key] = text;
+          } else {
+            answers.remove(key);
+          }
+        }
+      }
     }
   }
 
-  String? validate() {
+  /// Validates the required questions in [pageQuestions], returning the
+  /// first error message found, or null if everything required is filled.
+  String? _validateQuestions(List<SurveyQuestion> pageQuestions) {
     _syncTextAnswers();
 
-    for (final q in questions) {
+    for (final q in pageQuestions) {
+      if (q.isDisplayOnly) continue;
       if (!q.required) continue;
 
       final val = answers[q.fieldName];
@@ -377,6 +489,13 @@ class SurveyController extends GetxController {
       if (q.type == 'checkbox') {
         final list = val as List? ?? [];
         if (list.isEmpty) return '"${q.label}" is required.';
+      } else if (q.type == 'matrix') {
+        final map = matrixAnswerFor(q.fieldName);
+        for (final row in q.rows) {
+          if (!map.containsKey(row.value)) {
+            return '"${q.label}" — please rate "${row.label}".';
+          }
+        }
       } else if (q.type == 'geocode') {
         if (val == null || val.toString().isEmpty) {
           return '"${q.label}" — location not yet fetched. Tap the refresh icon next to the field.';
@@ -405,6 +524,20 @@ class SurveyController extends GetxController {
     return null; // no error
   }
 
+  /// Validates every question across every page — used as the final
+  /// safety check right before submitting.
+  String? validate() => _validateQuestions(questions);
+
+  /// Resolves the human-readable label for a dropdown/radio/checkbox
+  /// option, given the internally-stored value. Falls back to the raw
+  /// value itself if no matching option is found (e.g. nothing selected,
+  /// or the survey's options changed after this response was answered).
+  String? _labelFor(SurveyQuestion q, String? value) {
+    if (value == null || value.isEmpty) return value;
+    final opt = q.options.where((o) => o.value == value).firstOrNull;
+    return opt?.label ?? value;
+  }
+
   Future<void> submitResponse() async {
     final error = validate();
     if (error != null) {
@@ -416,13 +549,30 @@ class SurveyController extends GetxController {
     try {
       _syncTextAnswers();
 
-      // Build final answers map.  For radio questions with an "other" option
-      // selected, we merge the free-text into the answer so the stored value
-      // clearly shows what was entered (e.g. "Other: the user typed text").
+      // Build final answers map. Section/subsection are display-only and
+      // are never included in the stored response.
       final finalAnswers = <String, dynamic>{};
       for (final q in questions) {
+        if (q.isDisplayOnly) continue;
+
+        // Defensive guard: Firestore rejects empty-string field names
+        // outright, which would fail the *entire* submission. A question
+        // doc missing `fieldName` is a config error — skip just that one
+        // field instead of crashing the whole response.
+        if (q.fieldName.trim().isEmpty) {
+          debugPrint(
+            'Survey config warning: question "${q.label}" has an empty '
+                'fieldName and was skipped from the saved response.',
+          );
+          continue;
+        }
+
         final val = answers[q.fieldName];
+
         if (q.type == 'radio') {
+          // For radio questions with an "other" option selected, merge the
+          // free-text into the answer so the stored value clearly shows
+          // what was entered (e.g. "Other: the user typed text").
           final selectedOpt = q.options
               .where((o) => o.value == val && o.allowText)
               .firstOrNull;
@@ -431,10 +581,38 @@ class SurveyController extends GetxController {
                 answers['other_text_${q.fieldName}']?.toString().trim() ?? '';
             finalAnswers[q.fieldName] = otherText.isNotEmpty
                 ? 'Other: $otherText'
-                : val;
+                : selectedOpt.label;
           } else {
-            finalAnswers[q.fieldName] = val;
+            finalAnswers[q.fieldName] = _labelFor(q, val as String?);
           }
+        } else if (q.type == 'dropdown') {
+          finalAnswers[q.fieldName] = _labelFor(q, val as String?);
+        } else if (q.type == 'checkbox') {
+          final selectedValues = List<String>.from(val as List? ?? []);
+          // Store the human-readable labels (e.g. "Rail", "Bus") instead of
+          // the internal option values, so exported data doesn't need a
+          // lookup table to clean up later.
+          finalAnswers[q.fieldName] = selectedValues
+              .map((v) => _labelFor(q, v))
+              .toList();
+          // Store each selected "other"-style option's free text as its own
+          // field, e.g. transport_mode_other: "Metro".
+          for (final opt in q.options) {
+            if (!opt.allowText) continue;
+            final key = '${q.fieldName}_${opt.value}';
+            final selected = selectedValues.contains(opt.value);
+            if (selected && answers.containsKey(key)) {
+              finalAnswers[key] = answers[key];
+            }
+          }
+        } else if (q.type == 'matrix') {
+          // Strip any row that resolved to an empty key (shouldn't happen
+          // now that SurveyOption falls back to a label slug, but this is
+          // a last-resort safety net so a bad row can never fail the
+          // entire submission again).
+          final map = matrixAnswerFor(q.fieldName)
+            ..removeWhere((k, _) => k.trim().isEmpty);
+          finalAnswers[q.fieldName] = map;
         } else {
           finalAnswers[q.fieldName] = val;
         }
@@ -453,8 +631,17 @@ class SurveyController extends GetxController {
 
       // Notify the UI (e.g. to scroll to top).
       onSubmitSuccess?.call();
+    } on FirebaseException catch (e) {
+      // Surface the real Firestore error (e.g. "permission-denied" usually
+      // means the survey's `active` field isn't literally boolean true, or
+      // the security rules rejected the write for another reason) instead
+      // of a generic message that hides the cause.
+      AppSnackbar.show(
+        'Submit Failed',
+        '${e.message ?? 'Unknown error'} (${e.code})',
+      );
     } catch (e) {
-      AppSnackbar.show('Error', 'Failed to submit. Please try again.');
+      AppSnackbar.show('Error', 'Failed to submit. Please try again. ($e)');
     } finally {
       isSubmitting.value = false;
     }

@@ -109,6 +109,21 @@ class AdminController extends GetxController {
     return latest;
   }
 
+  /// Questions that actually carry a value in the response — section and
+  /// subsection are display-only headings and were never stored.
+  List<SurveyQuestion> get _storableQuestions =>
+      questions.where((q) => !q.isDisplayOnly).toList();
+
+  /// Formats a stored answer value for CSV / table display.
+  static String formatAnswerValue(dynamic val) {
+    if (val == null) return '';
+    if (val is List) return val.join(', ');
+    if (val is Map) {
+      return val.entries.map((e) => '${e.key}: ${e.value}').join(', ');
+    }
+    return val.toString();
+  }
+
   // ── CSV Export ─────────────────────────────────────────────────────────────
 
   Future<void> exportCsv() async {
@@ -119,9 +134,11 @@ class AdminController extends GetxController {
 
     isExporting.value = true;
     try {
+      final storable = _storableQuestions;
+
       // Build header row from question labels + meta columns.
-      final fieldNames = questions.map((q) => q.fieldName).toList();
-      final headerLabels = questions.map((q) => q.label).toList();
+      final fieldNames = storable.map((q) => q.fieldName).toList();
+      final headerLabels = storable.map((q) => q.label).toList();
       final header = ['S.No', 'Submitted By', 'Submitted At', ...headerLabels];
 
       // Build data rows.
@@ -134,12 +151,7 @@ class AdminController extends GetxController {
           r.submittedAt?.toLocal().toString() ?? '',
         ];
         for (final fn in fieldNames) {
-          final val = r.answers[fn];
-          if (val is List) {
-            row.add(val.join(', '));
-          } else {
-            row.add(val?.toString() ?? '');
-          }
+          row.add(formatAnswerValue(r.answers[fn]));
         }
         rows.add(row);
       }
@@ -166,7 +178,7 @@ class AdminController extends GetxController {
         if (result.type != ResultType.done) {
           debugPrint(
             'OpenFile could not open the CSV: '
-            '${result.type} — ${result.message}',
+                '${result.type} — ${result.message}',
           );
         }
       } catch (_) {

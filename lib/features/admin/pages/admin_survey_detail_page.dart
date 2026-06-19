@@ -13,7 +13,7 @@ class AdminSurveyDetailPage extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         title: Obx(
-          () => Text(ctrl.activeSurvey.value?.title ?? 'Survey Details'),
+              () => Text(ctrl.activeSurvey.value?.title ?? 'Survey Details'),
         ),
       ),
       body: Obx(() {
@@ -49,20 +49,6 @@ class _DetailBody extends StatelessWidget {
         _SectionHeader(title: 'Questions', icon: Icons.help_outline_rounded),
         const SizedBox(height: 8),
         _QuestionsList(ctrl: ctrl),
-        const SizedBox(height: 24),
-
-        // ── Responses Table ───────────────────────────────────────────────
-        _SectionHeader(
-          title: 'Responses (${ctrl.responses.length})',
-          icon: Icons.table_chart_outlined,
-        ),
-        const SizedBox(height: 8),
-        ctrl.responses.isEmpty
-            ? _EmptyState(
-                icon: Icons.inbox_outlined,
-                message: 'No responses yet',
-              )
-            : _ResponsesTable(ctrl: ctrl),
       ],
     );
   }
@@ -230,7 +216,7 @@ class _ExportSection extends StatelessWidget {
     final cs = Theme.of(context).colorScheme;
 
     return Obx(
-      () => SizedBox(
+          () => SizedBox(
         width: double.infinity,
         height: 52,
         child: ElevatedButton.icon(
@@ -247,13 +233,13 @@ class _ExportSection extends StatelessWidget {
               : ctrl.exportCsv,
           icon: ctrl.isExporting.value
               ? const SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2.5,
-                    color: Colors.white,
-                  ),
-                )
+            width: 20,
+            height: 20,
+            child: CircularProgressIndicator(
+              strokeWidth: 2.5,
+              color: Colors.white,
+            ),
+          )
               : const Icon(Icons.download_rounded),
           label: Text(
             ctrl.isExporting.value
@@ -293,6 +279,33 @@ class _QuestionsList extends StatelessWidget {
         itemBuilder: (context, index) {
           final q = ctrl.questions[index];
           final cs = Theme.of(context).colorScheme;
+
+          // Section / subsection are display-only headings — show them
+          // as a lightweight divider row instead of a numbered question.
+          if (q.isDisplayOnly) {
+            return ListTile(
+              dense: q.type == 'subsection',
+              leading: Icon(
+                q.type == 'section'
+                    ? Icons.view_agenda_outlined
+                    : Icons.short_text_rounded,
+                color: cs.primary,
+              ),
+              title: Text(
+                q.label,
+                style: TextStyle(
+                  fontWeight: q.type == 'section'
+                      ? FontWeight.w800
+                      : FontWeight.w600,
+                  color: cs.primary,
+                ),
+              ),
+              subtitle: Text(
+                q.type == 'section' ? 'Section heading' : 'Subsection heading',
+                style: TextStyle(fontSize: 12, color: cs.outline),
+              ),
+            );
+          }
 
           return ListTile(
             leading: CircleAvatar(
@@ -336,6 +349,8 @@ class _QuestionsList extends StatelessWidget {
         return 'Radio';
       case 'checkbox':
         return 'Checkbox';
+      case 'matrix':
+        return 'Matrix Rating';
       default:
         return type;
     }
@@ -368,199 +383,13 @@ class _TypeIcon extends StatelessWidget {
       case 'checkbox':
         icon = Icons.check_box_outlined;
         break;
+      case 'matrix':
+        icon = Icons.grid_on_rounded;
+        break;
       default:
         icon = Icons.text_fields;
     }
     return Icon(icon, size: 20, color: Theme.of(context).colorScheme.outline);
-  }
-}
-
-// ── Responses Table ──────────────────────────────────────────────────────────
-
-
-
-// class _ResponsesTable extends StatelessWidget {
-//   final AdminController ctrl;
-//   const _ResponsesTable({required this.ctrl});
-//
-//   @override
-//   Widget build(BuildContext context) {
-//     final cs = Theme.of(context).colorScheme;
-//
-//     // Build column headers: S.No, Submitted By, Submitted At, then each question label.
-//     final fieldNames = ctrl.questions.map((q) => q.fieldName).toList();
-//     final columns = <DataColumn>[
-//       const DataColumn(label: Text('S.No', style: TextStyle(fontWeight: FontWeight.w700))),
-//       const DataColumn(label: Text('Submitted By', style: TextStyle(fontWeight: FontWeight.w700))),
-//       const DataColumn(label: Text('Submitted At', style: TextStyle(fontWeight: FontWeight.w700))),
-//       ...ctrl.questions.map((q) => DataColumn(
-//         label: Flexible(
-//           child: Text(
-//             q.label,
-//             style: const TextStyle(fontWeight: FontWeight.w700),
-//             overflow: TextOverflow.ellipsis,
-//           ),
-//         ),
-//       )),
-//     ];
-//
-//     // Build rows.
-//     final rows = <DataRow>[];
-//     for (var i = 0; i < ctrl.responses.length; i++) {
-//       final r = ctrl.responses[i];
-//       final cells = <DataCell>[
-//         DataCell(Text('${i + 1}')),
-//         DataCell(Text(ctrl.enumeratorName(r.submittedBy))),
-//         DataCell(Text(
-//           r.submittedAt != null
-//               ? _formatShortDate(r.submittedAt!)
-//               : '—',
-//         )),
-//         ...fieldNames.map((fn) {
-//           final val = r.answers[fn];
-//           final display = val is List ? val.join(', ') : (val?.toString() ?? '');
-//           return DataCell(
-//             ConstrainedBox(
-//               constraints: const BoxConstraints(maxWidth: 200),
-//               child: Text(display, overflow: TextOverflow.ellipsis, maxLines: 2),
-//             ),
-//           );
-//         }),
-//       ];
-//       rows.add(DataRow(cells: cells));
-//     }
-//
-//     return Card(
-//       elevation: 1,
-//       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-//       clipBehavior: Clip.antiAlias,
-//       child: SingleChildScrollView(
-//         scrollDirection: Axis.horizontal,
-//         child: DataTable(
-//           headingRowColor: WidgetStateProperty.all(cs.surfaceContainerHighest),
-//           columnSpacing: 20,
-//           horizontalMargin: 16,
-//           columns: columns,
-//           rows: rows,
-//         ),
-//       ),
-//     );
-//   }
-//
-//   String _formatShortDate(DateTime dt) {
-//     final local = dt.toLocal();
-//     final day = local.day.toString().padLeft(2, '0');
-//     final month = local.month.toString().padLeft(2, '0');
-//     final year = local.year;
-//     final hour = local.hour > 12 ? local.hour - 12 : (local.hour == 0 ? 12 : local.hour);
-//     final minute = local.minute.toString().padLeft(2, '0');
-//     final amPm = local.hour >= 12 ? 'PM' : 'AM';
-//     return '$day/$month/$year $hour:$minute $amPm';
-//   }
-// }
-
-// ── Shared Widgets ───────────────────────────────────────────────────────────
-
-class _ResponsesTable extends StatelessWidget {
-  final AdminController ctrl;
-  const _ResponsesTable({required this.ctrl});
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final fieldNames = ctrl.questions.map((q) => q.fieldName).toList();
-    final columns = <DataColumn>[
-      const DataColumn(
-        label: Text('S.No', style: TextStyle(fontWeight: FontWeight.w700)),
-      ),
-      const DataColumn(
-        label: Text(
-          'Submitted By',
-          style: TextStyle(fontWeight: FontWeight.w700),
-        ),
-      ),
-      const DataColumn(
-        label: Text(
-          'Submitted At',
-          style: TextStyle(fontWeight: FontWeight.w700),
-        ),
-      ),
-      ...ctrl.questions.map(
-        (q) => DataColumn(
-          label: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 180),
-            child: Text(
-              q.label,
-              style: const TextStyle(fontWeight: FontWeight.w700),
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-        ),
-      ),
-    ];
-
-    final rows = <DataRow>[];
-    for (var i = 0; i < ctrl.responses.length; i++) {
-      final r = ctrl.responses[i];
-      rows.add(
-        DataRow(
-          cells: [
-            DataCell(Text('${i + 1}')),
-            DataCell(Text(ctrl.enumeratorName(r.submittedBy))),
-            DataCell(
-              Text(
-                r.submittedAt != null ? _formatShortDate(r.submittedAt!) : '-',
-              ),
-            ),
-            ...fieldNames.map((fn) {
-              final val = r.answers[fn];
-              final display = val is List
-                  ? val.join(', ')
-                  : (val?.toString() ?? '');
-              return DataCell(
-                ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 220),
-                  child: Text(
-                    display,
-                    overflow: TextOverflow.ellipsis,
-                    maxLines: 2,
-                  ),
-                ),
-              );
-            }),
-          ],
-        ),
-      );
-    }
-
-    return Card(
-      elevation: 1,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      clipBehavior: Clip.antiAlias,
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: DataTable(
-          headingRowColor: WidgetStateProperty.all(cs.surfaceContainerHighest),
-          columnSpacing: 20,
-          horizontalMargin: 16,
-          columns: columns,
-          rows: rows,
-        ),
-      ),
-    );
-  }
-
-  String _formatShortDate(DateTime dt) {
-    final local = dt.toLocal();
-    final day = local.day.toString().padLeft(2, '0');
-    final month = local.month.toString().padLeft(2, '0');
-    final year = local.year;
-    final hour = local.hour > 12
-        ? local.hour - 12
-        : (local.hour == 0 ? 12 : local.hour);
-    final minute = local.minute.toString().padLeft(2, '0');
-    final amPm = local.hour >= 12 ? 'PM' : 'AM';
-    return '$day/$month/$year $hour:$minute $amPm';
   }
 }
 
